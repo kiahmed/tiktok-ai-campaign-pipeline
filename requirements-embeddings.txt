@@ -1,0 +1,7 @@
+# Optional: LOCAL semantic script de-duplication (no API).
+#   pip install -r requirements.txt -r requirements-embeddings.txt
+# then set NOVELTY_METHOD=embedding
+#
+# Pulls in torch + numpy. The model (~100 MB) downloads once to the local
+# HuggingFace cache, then runs fully offline (set HF_HUB_OFFLINE=1 to enforce).
+sentence-transformers==3.3.1

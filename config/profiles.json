@@ -1,0 +1,41 @@
+{
+  "brand": {
+    "name": "Pure Purc",
+    "voice": "raw, first-person MALE story — a guy talking straight to camera about losing his confidence to hair loss and getting his life back; authentic, emotional, no hype",
+    "tone_words": ["honest", "vulnerable", "confident comeback", "no-hype"],
+    "value_props": [
+      "got my confidence back",
+      "changed how I feel about myself",
+      "natural, simple daily routine"
+    ],
+    "banned_words": ["miracle", "cure", "guaranteed results", "FDA approved"]
+  },
+  "audience": {
+    "segments": [
+      {
+        "name": "young_men_confidence",
+        "pains": ["thinning hair is killing my confidence", "feel older than I am", "hiding under a hat"],
+        "desires": ["get my confidence back", "look young again", "feel like myself again"]
+      },
+      {
+        "name": "midage_men_comeback",
+        "pains": ["receding hairline", "losing my edge", "cringe at recent photos"],
+        "desires": ["turn back the clock", "feel attractive again", "a simple fix that actually works"]
+      }
+    ]
+  },
+  "creative": {
+    "narrator": "male",
+    "format": "personal transformation story: lost confidence -> changed his life",
+    "music": "cinematic, emotional, 'cool' background track worth staying for even if they don't buy",
+    "notes": "Female-led creatives underperform; ALWAYS a male first-person narrator. The emotional music must hold non-buyers to the end (watch-time boosts TikTok ranking), so write to an emotional arc."
+  },
+  "rules": {
+    "max_words": 50,
+    "min_seconds": 10.0,
+    "max_seconds": 20.0,
+    "required_beats": ["hook", "problem", "solution", "cta"],
+    "cta_keywords": ["tap", "shop", "buy", "try", "get", "click", "order", "link", "grab", "discover", "check", "swipe"],
+    "banned_claims": ["regrows hair overnight", "cures baldness", "100% guaranteed"]
+  }
+}

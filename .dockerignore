@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+*.db
+generated_videos/*
+logs/*
+.git/
+.pytest_cache/
+.idea/
+.vscode/

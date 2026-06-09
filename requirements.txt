@@ -1,0 +1,34 @@
+# Pinned to versions that ship prebuilt wheels for and run on Python 3.12–3.14.
+# `pip install -r requirements.txt` needs NO C/Rust compiler on any of them.
+# (Older pins build pydantic-core/dependency-injector from source on 3.14, and
+# older fastapi/SQLAlchemy install but crash at runtime on 3.14.)
+
+# ---- Web framework ----
+fastapi==0.136.3
+uvicorn[standard]==0.49.0
+
+# ---- Configuration / validation ----
+pydantic==2.13.4
+pydantic-settings==2.14.1
+python-dotenv==1.2.2
+
+# ---- Dependency injection ----
+dependency-injector==4.49.0
+
+# ---- Persistence ----
+SQLAlchemy==2.0.50
+# PostgreSQL driver lives in requirements-postgres.txt (optional upgrade path).
+# Keeping it out of the default set means `pip install -r requirements.txt`
+# works with zero system dependencies (SQLite is built in).
+
+# ---- Scheduling ----
+APScheduler==3.11.2
+
+# ---- HTTP client ----
+requests==2.34.2
+
+# ---- Retry strategy ----
+tenacity==9.1.4
+
+# ---- Dev / test ----
+pytest==9.0.3

@@ -1,0 +1,24 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+.env
+*.db
+*.sqlite3
+
+# Persisted TikTok tokens (rotated secrets — never commit)
+config/tiktok_token.json
+
+generated_videos/*
+!generated_videos/.gitkeep
+
+logs/*
+!logs/.gitkeep
+
+.pytest_cache/
+.mypy_cache/
+.idea/
+.vscode/

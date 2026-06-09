@@ -1,0 +1,39 @@
+services:
+  app:
+    build: .
+    container_name: tiktok-ad-automator
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist generated videos, logs and the SQLite DB on the host.
+      - ./generated_videos:/app/generated_videos
+      - ./logs:/app/logs
+      - ./app.db:/app/app.db
+    restart: unless-stopped
+    # To use Postgres instead of SQLite, uncomment `depends_on` and set
+    # DATABASE_URL=postgresql+psycopg2://tiktok:tiktok@db:5432/tiktok_ads in .env
+    # depends_on:
+    #   db:
+    #     condition: service_healthy
+
+  # ---- Optional PostgreSQL service (upgrade path from SQLite) ----
+  # Uncomment this block and the depends_on above to switch to Postgres.
+  # db:
+  #   image: postgres:16-alpine
+  #   container_name: tiktok-ad-db
+  #   environment:
+  #     POSTGRES_USER: tiktok
+  #     POSTGRES_PASSWORD: tiktok
+  #     POSTGRES_DB: tiktok_ads
+  #   volumes:
+  #     - pgdata:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U tiktok"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+# volumes:
+#   pgdata:
