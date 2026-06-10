@@ -101,8 +101,40 @@ def build_video_generator(settings: Settings) -> VideoGenerator:
     if provider == "arcads":
         return ArcadsVideoProvider(settings.arcads_api_key, "https://api.arcads.ai")
     if provider == "kling":
-        return KlingVideoProvider(settings.kling_api_key, "https://api.klingai.com")
+        return KlingVideoProvider(
+            access_key=settings.kling_access_key,
+            secret_key=settings.kling_secret_key,
+            api_key=settings.kling_api_key,
+            base_url=settings.kling_base_url,
+            model=settings.kling_model,
+            duration=settings.kling_duration,
+            mode=settings.kling_mode,
+            prepare_image=settings.kling_prepare_image,
+            image_width=settings.video_width,
+            image_height=settings.video_height,
+        )
     raise ConfigurationError(f"Unknown VIDEO_PROVIDER='{settings.video_provider}'")
+
+
+def build_voice_generator(settings: Settings):
+    """Build the voiceover provider, or None if voice is disabled/unconfigured
+    (so the pipeline degrades gracefully to a silent video)."""
+    if not settings.voice_enabled:
+        return None
+    provider = settings.voice_provider.lower()
+    if provider == "elevenlabs":
+        if not (settings.elevenlabs_api_key and settings.elevenlabs_voice_id):
+            return None  # enabled but not configured -> skip voice
+        from app.providers.elevenlabs import ElevenLabsVoiceProvider
+
+        return ElevenLabsVoiceProvider(
+            settings.elevenlabs_api_key,
+            settings.elevenlabs_voice_id,
+            model_id=settings.elevenlabs_model,
+            base_url=settings.elevenlabs_base_url,
+            storage_dir=settings.video_storage_dir,
+        )
+    raise ConfigurationError(f"Unknown VOICE_PROVIDER='{settings.voice_provider}'")
 
 
 def build_ad_platform(settings: Settings) -> AdPlatform:

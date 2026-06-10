@@ -5,12 +5,18 @@ from dataclasses import dataclass
 
 @dataclass(slots=True)
 class ScriptResult:
-    """A generated TikTok ad script, returned by any ScriptGenerator."""
+    """A generated TikTok ad script, returned by any ScriptGenerator.
+
+    ``text`` is the spoken voiceover (read by the voice provider). ``visual_prompt``
+    (when present) describes what the video should show — used by the video
+    provider, since the spoken words are not a good visual prompt.
+    """
 
     text: str
     provider: str
     model: str | None = None
     word_count: int = 0
+    visual_prompt: str | None = None
 
     def __post_init__(self) -> None:
         if not self.word_count:

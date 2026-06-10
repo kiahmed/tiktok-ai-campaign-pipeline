@@ -80,7 +80,8 @@ class Script(Base):
     product_id: Mapped[int] = mapped_column(
         ForeignKey("products.id", ondelete="CASCADE"), index=True
     )
-    text: Mapped[str] = mapped_column(Text, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)  # spoken voiceover
+    visual_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)  # video scene prompt
     provider: Mapped[str] = mapped_column(String(50))
     model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     word_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -216,6 +217,9 @@ class CreativeJob(Base):
     prepared_script: Mapped[str | None] = mapped_column(Text, nullable=True)
     landing_page_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     post_to_platform: Mapped[bool] = mapped_column(default=True)
+    # Target campaign / ad group for the ad (None => configured defaults).
+    target_campaign_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    target_adgroup_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     attempt: Mapped[int] = mapped_column(Integer, default=0)
     max_attempts: Mapped[int] = mapped_column(Integer, default=3)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -230,6 +234,33 @@ class CreativeJob(Base):
     qc_reviews: Mapped[list["QcReview"]] = relationship(
         back_populates="job", cascade="all, delete-orphan", order_by="QcReview.created_at"
     )
+
+
+class Campaign(Base):
+    """A campaign created/cloned on the platform (we now manage these)."""
+
+    __tablename__ = "campaigns"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    platform: Mapped[str] = mapped_column(String(50))
+    platform_campaign_id: Mapped[str] = mapped_column(String(255), index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    template_campaign_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class AdGroup(Base):
+    """An ad group created/cloned on the platform under a campaign."""
+
+    __tablename__ = "ad_groups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    platform: Mapped[str] = mapped_column(String(50))
+    platform_adgroup_id: Mapped[str] = mapped_column(String(255), index=True)
+    platform_campaign_id: Mapped[str] = mapped_column(String(255), index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    template_adgroup_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
 class QcReview(Base):

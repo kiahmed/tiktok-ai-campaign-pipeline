@@ -33,6 +33,51 @@ class ProductRequest(BaseModel):
     )
 
 
+# ---- Campaign / ad-group management ----
+class CloneCampaignRequest(BaseModel):
+    name: str = Field(..., examples=["Pure Purc - June - Conversions"])
+    template_campaign_id: str | None = Field(
+        default=None, description="Campaign to clone. Defaults to TIKTOK_CAMPAIGN_ID."
+    )
+    clone_adgroups: bool = Field(
+        default=True, description="Also clone the template's ad groups (deep clone)."
+    )
+    overrides: dict = Field(default_factory=dict, description="Fields to override on create.")
+
+
+class CloneCampaignResponse(BaseModel):
+    campaign: "CampaignOut"
+    adgroups: list["AdGroupOut"]
+
+
+class CampaignOut(BaseModel):
+    id: int
+    platform: str
+    platform_campaign_id: str
+    name: str
+    template_campaign_id: str | None
+    created_at: str
+
+
+class CreateAdGroupRequest(BaseModel):
+    campaign_id: str = Field(..., description="Platform campaign id to create the ad group under.")
+    name: str = Field(..., examples=["Men 25-40 - Interest: Hair Care"])
+    template_adgroup_id: str | None = Field(
+        default=None, description="Ad group to clone settings from. Defaults to TIKTOK_ADGROUP_ID."
+    )
+    overrides: dict = Field(default_factory=dict, description="Fields to override (e.g. audience).")
+
+
+class AdGroupOut(BaseModel):
+    id: int
+    platform: str
+    platform_adgroup_id: str
+    platform_campaign_id: str
+    name: str
+    template_adgroup_id: str | None
+    created_at: str
+
+
 class ScriptGenRequest(BaseModel):
     """Script-only preview input. Provide product details, or a product_id to
     reuse an existing product's accumulated history (angles/rejections)."""
@@ -49,7 +94,8 @@ class ScriptGenResponse(BaseModel):
     hook_type: str
     angle: str
     audience_segment: str | None
-    script: str
+    script: str               # spoken voiceover (ElevenLabs)
+    visual_prompt: str | None  # what the video shows (Kling)
     word_count: int
     mode: str          # exploit | explore
     similarity: float  # vs past scripts (lower = more novel)
@@ -167,6 +213,12 @@ class JobRequest(BaseModel):
     )
     post_to_platform: bool = Field(
         default=True, description="If false, stop at APPROVED (don't create the ad)."
+    )
+    target_campaign_id: str | None = Field(
+        default=None, description="Publish the ad under this campaign (defaults to config)."
+    )
+    target_adgroup_id: str | None = Field(
+        default=None, description="Publish the ad into this ad group (defaults to config)."
     )
 
 

@@ -23,10 +23,32 @@ _CODE_GUIDANCE = {
 }
 
 
-def build_strategy_system(profiles: Profiles) -> str:
+_VISUAL_GUIDANCE = {
+    "product": (
+        "The \"visual_prompt\" describes the PRODUCT in motion for an AI video "
+        "model that animates the product image — e.g. the bottle rotating, "
+        "droplets, ingredients, cinematic light, slow push-in. Do NOT describe "
+        "people or anyone speaking."
+    ),
+    "talking_head": (
+        "The video is ONE PERSON delivering THIS voiceover to camera. Write "
+        "\"visual_prompt\" as a vivid description of that person and scene so it "
+        "is COHERENT with the script: a person matching the audience segment, "
+        "with a facial expression and emotion that fit the script's message and "
+        "arc; close-up selfie-style vertical 9:16, face clearly visible and "
+        "actively speaking to camera, natural lighting and a fitting setting. "
+        "Their lips will be lip-synced to the voiceover, so they MUST look like "
+        "they are talking. Describe the person, emotion and setting — NOT the "
+        "spoken words themselves."
+    ),
+}
+
+
+def build_strategy_system(profiles: Profiles, creative_mode: str = "product") -> str:
     brand = profiles.brand
     rules = profiles.rules
     cr = profiles.creative
+    visual_guidance = _VISUAL_GUIDANCE.get(creative_mode, _VISUAL_GUIDANCE["product"])
     voice = brand.voice or "authentic, casual, first-person UGC"
     banned = ", ".join(brand.banned_words + rules.banned_claims) or "none"
 
@@ -58,8 +80,11 @@ def build_strategy_system(profiles: Profiles) -> str:
         f"Hard rules: <= {rules.max_words} words; reads in "
         f"{rules.min_seconds:.0f}-{rules.max_seconds:.0f}s; must contain a HOOK, "
         "PROBLEM, SOLUTION and CTA, in that order.\n"
+        "The \"script\" is the SPOKEN voiceover (a voice actor reads it aloud) — "
+        "natural, punchy ad copy. " + visual_guidance + " Keep visual_prompt "
+        "concrete, vertical-friendly, under 200 characters and NOT the spoken words.\n"
         "Output ONLY a single minified JSON object with EXACTLY these keys: "
-        '"hook_type", "angle", "audience_segment", "script". '
+        '"hook_type", "angle", "audience_segment", "script", "visual_prompt". '
         "No markdown, no code fences, no commentary."
     )
 
@@ -115,7 +140,8 @@ def build_strategy_user(
                 "hook_type": brief.hook_type,
                 "angle": brief.angle,
                 "audience_segment": seg_name,
-                "script": "<the spoken script>",
+                "script": "<the spoken voiceover>",
+                "visual_prompt": "<what the video shows>",
             }
         )
     )

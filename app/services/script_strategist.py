@@ -34,6 +34,7 @@ class StrategyOutput:
     mode: str            # exploit | explore
     similarity: float    # max similarity vs past scripts (lower = more novel)
     attempts: int
+    visual_prompt: str | None = None       # video scene prompt (Kling)
     embedding: list[float] | None = None  # cached so it isn't recomputed later
 
 
@@ -47,6 +48,7 @@ class ScriptStrategist:
         selector: AngleSelector | None = None,
         novelty: NoveltyChecker | None = None,
         max_attempts: int = 3,
+        creative_mode: str = "product",
     ) -> None:
         self._llm = llm
         self._knowledge = knowledge
@@ -54,6 +56,7 @@ class ScriptStrategist:
         self._selector = selector or AngleSelector()
         self._novelty = novelty or LexicalNovelty()
         self._max_attempts = max_attempts
+        self._creative_mode = creative_mode
 
     def generate(self, product: ProductInput, product_id: int) -> StrategyOutput:
         profiles = self._profiles.load()
@@ -66,7 +69,7 @@ class ScriptStrategist:
             brief.audience_segment.name if brief.audience_segment else None,
             brief.mode,
         )
-        system = build_strategy_system(profiles)
+        system = build_strategy_system(profiles, self._creative_mode)
         model = getattr(self._llm, "_model", None)
 
         best: StrategyOutput | None = None
@@ -83,6 +86,7 @@ class ScriptStrategist:
             seg = (parsed.get("audience_segment") if parsed else None) or (
                 brief.audience_segment.name if brief.audience_segment else None
             )
+            visual_prompt = (parsed.get("visual_prompt") if parsed else None) or None
             result = self._novelty.check(script, ctx.past_scripts, ctx.past_embeddings)
             sim = result.max_similarity
             candidate = StrategyOutput(
@@ -95,6 +99,7 @@ class ScriptStrategist:
                 mode=brief.mode,
                 similarity=sim,
                 attempts=attempt + 1,
+                visual_prompt=str(visual_prompt) if visual_prompt else None,
                 embedding=result.candidate_vector,
             )
             if sim < self._novelty.threshold:

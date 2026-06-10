@@ -30,6 +30,10 @@ class VideoGenerationError(ProviderError):
     """The video provider failed to produce / deliver a video."""
 
 
+class VoiceGenerationError(ProviderError):
+    """The voice (TTS) provider failed to produce audio."""
+
+
 class AdPlatformError(ProviderError):
     """The advertising platform rejected or failed a request."""
 

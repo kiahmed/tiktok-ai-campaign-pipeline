@@ -23,9 +23,12 @@ from app.factories import (
     build_script_generator,
     build_video_generator,
     build_video_spec,
+    build_voice_generator,
 )
 from app.repositories import (
+    AdGroupRepository,
     AdRepository,
+    CampaignRepository,
     CreativeJobRepository,
     MetricRepository,
     ProductRepository,
@@ -41,6 +44,8 @@ from app.agents import (
     VideoProductionAgent,
 )
 from app.orchestrator import CreativeJobOrchestrator
+from app.services.adgroup_router import AdGroupRouter
+from app.services.campaign_service import CampaignService
 from app.services.creative_service import CreativeService
 from app.services.knowledge_service import KnowledgeService
 from app.services.monitoring_service import MonitoringService
@@ -49,7 +54,10 @@ from app.services.profile_service import ProfileService
 from app.services.qc_judge import QcJudge
 from app.services.script_strategist import ScriptStrategist
 from app.services.strategy import AngleSelector
+from app.services.talking_head import TalkingHeadProducer
+from app.services.video_merge import VideoMerger
 from app.services.video_storage import VideoStorageService
+from app.services.voiceover import VoiceoverService
 
 
 class Container(containers.DeclarativeContainer):
@@ -68,11 +76,21 @@ class Container(containers.DeclarativeContainer):
     metric_repo = providers.Singleton(MetricRepository, session_factory)
     job_repo = providers.Singleton(CreativeJobRepository, session_factory)
     qc_repo = providers.Singleton(QcReviewRepository, session_factory)
+    campaign_repo = providers.Singleton(CampaignRepository, session_factory)
+    adgroup_repo = providers.Singleton(AdGroupRepository, session_factory)
 
     # ---- Providers (chosen from config via factories) ----
     script_generator = providers.Singleton(build_script_generator, settings)
     video_generator = providers.Singleton(build_video_generator, settings)
+    voice_generator = providers.Singleton(build_voice_generator, settings)
     ad_platform = providers.Singleton(build_ad_platform, settings)
+    video_merger = providers.Singleton(VideoMerger, ffmpeg=settings.provided.ffmpeg_path)
+    voiceover_service = providers.Singleton(
+        VoiceoverService,
+        voice_generator=voice_generator,
+        merger=video_merger,
+        enabled=settings.provided.voice_enabled,
+    )
 
     # ---- Infrastructure services ----
     storage = providers.Singleton(
@@ -119,6 +137,7 @@ class Container(containers.DeclarativeContainer):
         profile_service=profile_service,
         selector=angle_selector,
         novelty=novelty_checker,
+        creative_mode=settings.provided.creative_mode,
     )
 
     # One-shot pipeline. Uses the same Strategist as the agent path so
@@ -137,6 +156,7 @@ class Container(containers.DeclarativeContainer):
         adgroup_id=providers.Callable(active_adgroup_id, settings),
         profile_service=profile_service,
         script_strategist=script_strategist,
+        voiceover=voiceover_service,
     )
 
     strategist_agent = providers.Singleton(
@@ -144,6 +164,12 @@ class Container(containers.DeclarativeContainer):
         strategist=script_strategist,
         product_repo=product_repo,
         script_repo=script_repo,
+    )
+    talking_head_producer = providers.Singleton(
+        TalkingHeadProducer,
+        video_generator=video_generator,
+        storage=storage,
+        voice_generator=voice_generator,
     )
     video_agent = providers.Singleton(
         VideoProductionAgent,
@@ -153,6 +179,9 @@ class Container(containers.DeclarativeContainer):
         script_repo=script_repo,
         video_repo=video_repo,
         profile_service=profile_service,
+        voiceover=voiceover_service,
+        talking_head=talking_head_producer,
+        creative_mode=settings.provided.creative_mode,
     )
     qc_llm = providers.Singleton(build_qc_llm, settings)
     qc_judge = providers.Singleton(
@@ -171,12 +200,30 @@ class Container(containers.DeclarativeContainer):
         judge=qc_judge,
         video_spec=video_spec,
     )
+    # Campaign cloning + ad-group routing.
+    campaign_service = providers.Singleton(
+        CampaignService,
+        ad_platform=ad_platform,
+        campaign_repo=campaign_repo,
+        adgroup_repo=adgroup_repo,
+        template_campaign_id=providers.Callable(active_campaign_id, settings),
+    )
+    adgroup_router = providers.Singleton(
+        AdGroupRouter,
+        campaign_repo=campaign_repo,
+        adgroup_repo=adgroup_repo,
+        default_adgroup_id=providers.Callable(active_adgroup_id, settings),
+        default_campaign_id=providers.Callable(active_campaign_id, settings),
+    )
+
     ad_agent = providers.Singleton(
         TikTokAdAgent,
         ad_platform=ad_platform,
         product_repo=product_repo,
         video_repo=video_repo,
         ad_repo=ad_repo,
+        script_repo=script_repo,
+        router=adgroup_router,
         campaign_id=providers.Callable(active_campaign_id, settings),
         adgroup_id=providers.Callable(active_adgroup_id, settings),
     )

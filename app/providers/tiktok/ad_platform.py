@@ -22,7 +22,7 @@ import os
 import requests
 
 from app.core.entities import AdCreativeResult, PerformanceMetrics
-from app.core.entities.ad import UploadedVideo
+from app.core.entities.ad import AdGroupRef, AdGroupResult, CampaignResult, UploadedVideo
 from app.core.exceptions import AdPlatformError, ConfigurationError
 from app.core.http import translate_network_errors
 from app.core.interfaces import AdPlatform
@@ -67,6 +67,32 @@ class TikTokAdPlatform(AdPlatform):
         """A currently-valid access token (auto-refreshed near expiry)."""
         return self._tokens.valid_token()
 
+    @property
+    def _json_headers(self) -> dict[str, str]:
+        return {"Access-Token": self._token, "Content-Type": "application/json"}
+
+    def _get_one(
+        self, path: str, *, list_field: str, filter_field: str, filter_value, action: str
+    ) -> dict:
+        """GET a single object by id-filter and return the first list item."""
+        resp = requests.get(
+            f"{self._base}{path}",
+            headers={"Access-Token": self._token},
+            params={
+                "advertiser_id": self._advertiser_id,
+                "filtering": _json_list({filter_field: filter_value}),
+            },
+            timeout=self._timeout,
+        )
+        data = self._unwrap(resp, action=action)
+        rows = data.get(list_field) or []
+        if not rows:
+            raise AdPlatformError(
+                f"{action}: template not found for {filter_field}={filter_value}",
+                provider=self.name,
+            )
+        return rows[0]
+
     # ------------------------------------------------------------------ #
     # Upload video
     # ------------------------------------------------------------------ #
@@ -101,7 +127,113 @@ class TikTokAdPlatform(AdPlatform):
         return UploadedVideo(platform_video_id=str(video_id), provider=self.name)
 
     # ------------------------------------------------------------------ #
-    # Create creative + ad inside the existing ad group
+    # Clone campaign / create ad group
+    # ------------------------------------------------------------------ #
+    @translate_network_errors(AdPlatformError)
+    @with_retry()
+    def clone_campaign(
+        self, *, template_campaign_id: str, name: str, overrides: dict | None = None
+    ) -> CampaignResult:
+        """Read a template campaign and create a copy with a new name."""
+        logger.info("Cloning TikTok campaign from template=%s", template_campaign_id)
+        template = self._get_one(
+            "/campaign/get/",
+            list_field="list",
+            filter_field="campaign_ids",
+            filter_value=[template_campaign_id],
+            action="get_campaign",
+        )
+        payload = {"advertiser_id": self._advertiser_id, "campaign_name": name}
+        for field in _CAMPAIGN_CLONE_FIELDS:
+            if template.get(field) is not None:
+                payload[field] = template[field]
+        payload.update(overrides or {})
+
+        data = self._unwrap(
+            requests.post(
+                f"{self._base}/campaign/create/",
+                headers=self._json_headers,
+                json=payload,
+                timeout=self._timeout,
+            ),
+            action="create_campaign",
+        )
+        campaign_id = data.get("campaign_id")
+        if not campaign_id:
+            raise AdPlatformError(f"no campaign_id in response: {data}", provider=self.name)
+        logger.info("TikTok campaign created id=%s", campaign_id)
+        return CampaignResult(campaign_id=str(campaign_id), name=name, provider=self.name)
+
+    @translate_network_errors(AdPlatformError)
+    @with_retry()
+    def list_adgroups(self, campaign_id: str) -> list[AdGroupRef]:
+        resp = requests.get(
+            f"{self._base}/adgroup/get/",
+            headers={"Access-Token": self._token},
+            params={
+                "advertiser_id": self._advertiser_id,
+                "filtering": _json_list({"campaign_ids": [campaign_id]}),
+                "page_size": 100,
+            },
+            timeout=self._timeout,
+        )
+        data = self._unwrap(resp, action="list_adgroups")
+        out: list[AdGroupRef] = []
+        for ag in data.get("list") or []:
+            agid = ag.get("adgroup_id")
+            if agid:
+                out.append(AdGroupRef(adgroup_id=str(agid), name=str(ag.get("adgroup_name", ""))))
+        return out
+
+    @translate_network_errors(AdPlatformError)
+    @with_retry()
+    def create_adgroup(
+        self,
+        *,
+        campaign_id: str,
+        name: str,
+        template_adgroup_id: str | None = None,
+        overrides: dict | None = None,
+    ) -> AdGroupResult:
+        """Create an ad group under ``campaign_id``, optionally cloning a template."""
+        logger.info("Creating TikTok ad group '%s' under campaign=%s", name, campaign_id)
+        payload = {
+            "advertiser_id": self._advertiser_id,
+            "campaign_id": campaign_id,
+            "adgroup_name": name,
+        }
+        if template_adgroup_id:
+            template = self._get_one(
+                "/adgroup/get/",
+                list_field="list",
+                filter_field="adgroup_ids",
+                filter_value=[template_adgroup_id],
+                action="get_adgroup",
+            )
+            for field in _ADGROUP_CLONE_FIELDS:
+                if template.get(field) is not None:
+                    payload[field] = template[field]
+        payload.update(overrides or {})
+
+        data = self._unwrap(
+            requests.post(
+                f"{self._base}/adgroup/create/",
+                headers=self._json_headers,
+                json=payload,
+                timeout=self._timeout,
+            ),
+            action="create_adgroup",
+        )
+        adgroup_id = data.get("adgroup_id")
+        if not adgroup_id:
+            raise AdPlatformError(f"no adgroup_id in response: {data}", provider=self.name)
+        logger.info("TikTok ad group created id=%s", adgroup_id)
+        return AdGroupResult(
+            adgroup_id=str(adgroup_id), campaign_id=str(campaign_id), name=name, provider=self.name
+        )
+
+    # ------------------------------------------------------------------ #
+    # Create creative + ad inside an ad group
     # ------------------------------------------------------------------ #
     @translate_network_errors(AdPlatformError)
     @with_retry()
@@ -110,10 +242,12 @@ class TikTokAdPlatform(AdPlatform):
         *,
         platform_video_id: str,
         ad_name: str,
+        adgroup_id: str | None = None,
         landing_page_url: str | None = None,
         call_to_action: str = "SHOP_NOW",
     ) -> AdCreativeResult:
-        logger.info("Creating TikTok ad '%s' in adgroup=%s", ad_name, self._adgroup_id)
+        target_adgroup = adgroup_id or self._adgroup_id
+        logger.info("Creating TikTok ad '%s' in adgroup=%s", ad_name, target_adgroup)
         creative: dict = {
             "ad_name": ad_name,
             "identity_type": "CUSTOMIZED_USER",
@@ -127,8 +261,7 @@ class TikTokAdPlatform(AdPlatform):
 
         payload = {
             "advertiser_id": self._advertiser_id,
-            # NOTE: we attach to the *existing* ad group; we do not create one.
-            "adgroup_id": self._adgroup_id,
+            "adgroup_id": target_adgroup,
             "creatives": [creative],
         }
         resp = requests.post(
@@ -259,3 +392,48 @@ def _json_list(value) -> str:
     import json
 
     return json.dumps(value)
+
+
+# Fields copied from a template when cloning. TikTok's get/ returns more than
+# create/ accepts, so we copy a curated set of *createable* fields. Tune these
+# to match your account's campaign/ad-group setup if a create call rejects one.
+_CAMPAIGN_CLONE_FIELDS = [
+    "objective_type",
+    "budget_mode",
+    "budget",
+    "campaign_type",
+    "budget_optimize_on",
+    "bid_type",
+    "roas_bid",
+    "app_promotion_type",
+]
+
+_ADGROUP_CLONE_FIELDS = [
+    "promotion_type",
+    "placement_type",
+    "placements",
+    "location_ids",
+    "age_groups",
+    "gender",
+    "languages",
+    "operating_systems",
+    "audience_ids",
+    "excluded_audience_ids",
+    "interest_category_ids",
+    "budget_mode",
+    "budget",
+    "schedule_type",
+    "schedule_start_time",
+    "schedule_end_time",
+    "dayparting",
+    "optimization_goal",
+    "billing_event",
+    "bid_type",
+    "bid_price",
+    "pacing",
+    "pixel_id",
+    "optimization_event",
+    "identity_id",
+    "identity_type",
+    "app_id",
+]

@@ -23,6 +23,8 @@ class CreativeJobRepository(BaseRepository):
         landing_page_url: str | None = None,
         post_to_platform: bool = True,
         max_attempts: int = 3,
+        target_campaign_id: str | None = None,
+        target_adgroup_id: str | None = None,
     ) -> CreativeJob:
         with self._unit_of_work() as session:
             job = CreativeJob(
@@ -32,6 +34,8 @@ class CreativeJobRepository(BaseRepository):
                 landing_page_url=landing_page_url,
                 post_to_platform=post_to_platform,
                 max_attempts=max_attempts,
+                target_campaign_id=target_campaign_id,
+                target_adgroup_id=target_adgroup_id,
             )
             session.add(job)
             session.flush()

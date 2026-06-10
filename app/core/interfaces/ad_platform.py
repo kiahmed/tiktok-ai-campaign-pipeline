@@ -3,20 +3,49 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 from app.core.entities import AdCreativeResult, PerformanceMetrics
-from app.core.entities.ad import UploadedVideo
+from app.core.entities.ad import AdGroupRef, AdGroupResult, CampaignResult, UploadedVideo
 
 
 class AdPlatform(ABC):
-    """Manages creatives and ads on an advertising platform.
+    """Manages campaigns, ad groups, creatives and ads on an ad platform.
 
     Implementation: TikTok (the only supported ad platform).
 
-    IMPORTANT: implementations MUST NOT create campaigns or ad groups. They
-    operate strictly inside an *existing* campaign / ad group whose IDs are
-    supplied via configuration.
+    The platform can clone a campaign from a template and create ad groups
+    under it; campaigns/ad groups are managed explicitly via triggerable
+    operations (the caller controls cadence).
     """
 
     name: str = "abstract"
+
+    @abstractmethod
+    def clone_campaign(
+        self, *, template_campaign_id: str, name: str, overrides: dict | None = None
+    ) -> CampaignResult:
+        """Create a new campaign by copying a template campaign's settings."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def list_adgroups(self, campaign_id: str) -> list[AdGroupRef]:
+        """List the ad groups belonging to a campaign (for deep cloning)."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def create_adgroup(
+        self,
+        *,
+        campaign_id: str,
+        name: str,
+        template_adgroup_id: str | None = None,
+        overrides: dict | None = None,
+    ) -> AdGroupResult:
+        """Create an ad group under ``campaign_id``.
+
+        When ``template_adgroup_id`` is given, the template's settings
+        (targeting/budget/bid/schedule/...) are copied; otherwise ``overrides``
+        must supply the required fields.
+        """
+        raise NotImplementedError
 
     @abstractmethod
     def upload_video(self, file_path: str, *, file_name: str) -> UploadedVideo:
@@ -29,12 +58,14 @@ class AdPlatform(ABC):
         *,
         platform_video_id: str,
         ad_name: str,
+        adgroup_id: str | None = None,
         landing_page_url: str | None = None,
         call_to_action: str = "SHOP_NOW",
     ) -> AdCreativeResult:
-        """Create a creative and an ad inside the pre-existing ad group.
+        """Create a creative and an ad inside an ad group.
 
-        Returns the platform video id, creative id and ad id.
+        ``adgroup_id`` targets a specific ad group; if omitted, the platform's
+        default (configured) ad group is used. Returns video/creative/ad ids.
         """
         raise NotImplementedError
 

@@ -31,7 +31,7 @@
     "notes": "Female-led creatives underperform; ALWAYS a male first-person narrator. The emotional music must hold non-buyers to the end (watch-time boosts TikTok ranking), so write to an emotional arc."
   },
   "rules": {
-    "max_words": 50,
+    "max_words": 35,
     "min_seconds": 10.0,
     "max_seconds": 20.0,
     "required_beats": ["hook", "problem", "solution", "cta"],

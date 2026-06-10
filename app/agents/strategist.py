@@ -41,6 +41,7 @@ class CreativeStrategistAgent(Agent):
             raise NotFoundError(f"product {job.product_id} not found")
 
         embedding = None
+        visual_prompt = None
         if job.prepared_script:
             script = ScriptResult(text=job.prepared_script.strip(), provider="manual")
             hook_type = angle = segment = None
@@ -50,6 +51,7 @@ class CreativeStrategistAgent(Agent):
             script = ScriptResult(text=out.script, provider=out.provider, model=out.model)
             hook_type, angle, segment = out.hook_type, out.angle, out.audience_segment
             embedding = out.embedding  # cached so it isn't recomputed in future runs
+            visual_prompt = out.visual_prompt
             logger.info(
                 "Strategist script: angle=%s hook=%s mode=%s sim=%.2f",
                 angle, hook_type, out.mode, out.similarity,
@@ -65,6 +67,7 @@ class CreativeStrategistAgent(Agent):
             angle=angle,
             audience_segment=segment,
             embedding=embedding,
+            visual_prompt=visual_prompt,
         )
         return AgentResult(
             ok=True,

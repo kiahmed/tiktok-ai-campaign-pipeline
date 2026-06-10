@@ -42,11 +42,13 @@ class ScriptRepository(BaseRepository):
         angle: str | None = None,
         audience_segment: str | None = None,
         embedding: list[float] | None = None,
+        visual_prompt: str | None = None,
     ) -> Script:
         with self._unit_of_work() as session:
             script = Script(
                 product_id=product_id,
                 text=text,
+                visual_prompt=visual_prompt,
                 provider=provider,
                 model=model,
                 word_count=word_count,

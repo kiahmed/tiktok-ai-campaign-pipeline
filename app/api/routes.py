@@ -10,7 +10,12 @@ from app.api.dashboard_page import DASHBOARD_HTML
 from app.api.schemas import (
     AdOut,
     CreativeResponse,
+    AdGroupOut,
     AnglePerfOut,
+    CampaignOut,
+    CloneCampaignRequest,
+    CloneCampaignResponse,
+    CreateAdGroupRequest,
     HealthResponse,
     JobOverviewItem,
     JobRequest,
@@ -185,6 +190,7 @@ def generate_script(request: Request, body: ScriptGenRequest) -> ScriptGenRespon
         angle=out.angle,
         audience_segment=out.audience_segment,
         script=out.script,
+        visual_prompt=out.visual_prompt,
         word_count=len(out.script.split()),
         mode=out.mode,
         similarity=round(out.similarity, 3),
@@ -345,6 +351,8 @@ def create_job(request: Request, body: JobRequest) -> JobResponse:
         landing_page_url=body.landing_page_url,
         post_to_platform=body.post_to_platform,
         max_attempts=c.settings().job_max_attempts,
+        target_campaign_id=body.target_campaign_id,
+        target_adgroup_id=body.target_adgroup_id,
     )
     final = c.orchestrator().process(job.id)
     return _serialize_job(c, final)
@@ -374,6 +382,114 @@ def measure_job(request: Request, job_id: int) -> JobResponse:
         raise HTTPException(status_code=404, detail=f"job {job_id} not found")
     c.performance_agent().run(job)
     return _serialize_job(c, job)
+
+
+def _campaign_out(row) -> CampaignOut:
+    return CampaignOut(
+        id=row.id,
+        platform=row.platform,
+        platform_campaign_id=row.platform_campaign_id,
+        name=row.name,
+        template_campaign_id=row.template_campaign_id,
+        created_at=row.created_at.isoformat(),
+    )
+
+
+def _adgroup_out(row) -> AdGroupOut:
+    return AdGroupOut(
+        id=row.id,
+        platform=row.platform,
+        platform_adgroup_id=row.platform_adgroup_id,
+        platform_campaign_id=row.platform_campaign_id,
+        name=row.name,
+        template_adgroup_id=row.template_adgroup_id,
+        created_at=row.created_at.isoformat(),
+    )
+
+
+@router.post("/campaigns/clone", response_model=CloneCampaignResponse, tags=["campaigns"])
+def clone_campaign(request: Request, body: CloneCampaignRequest) -> CloneCampaignResponse:
+    """Deep-clone a template campaign (campaign + its ad groups; no ads).
+
+    Reverses the original 'never create campaigns' rule — used to spin up a new
+    campaign (e.g. monthly) from a proven template. New ads then publish into
+    this campaign's ad groups automatically.
+    """
+    c = _container(request)
+    template_id = body.template_campaign_id or c.settings().tiktok_campaign_id
+    if not template_id:
+        raise HTTPException(status_code=422, detail="provide template_campaign_id (or set TIKTOK_CAMPAIGN_ID)")
+    outcome = c.campaign_service().clone(
+        name=body.name,
+        template_campaign_id=template_id,
+        clone_adgroups=body.clone_adgroups,
+        overrides=body.overrides,
+    )
+    return CloneCampaignResponse(
+        campaign=_campaign_out(outcome.campaign),
+        adgroups=[_adgroup_out(a) for a in outcome.adgroups],
+    )
+
+
+@router.get("/campaigns", response_model=list[CampaignOut], tags=["campaigns"])
+def list_campaigns(request: Request) -> list[CampaignOut]:
+    return [
+        CampaignOut(
+            id=r.id,
+            platform=r.platform,
+            platform_campaign_id=r.platform_campaign_id,
+            name=r.name,
+            template_campaign_id=r.template_campaign_id,
+            created_at=r.created_at.isoformat(),
+        )
+        for r in _container(request).campaign_repo().list_all()
+    ]
+
+
+@router.post("/adgroups", response_model=AdGroupOut, tags=["campaigns"])
+def create_adgroup(request: Request, body: CreateAdGroupRequest) -> AdGroupOut:
+    """Create an ad group under a campaign, optionally cloning a template's
+    targeting/budget/bid settings (e.g. weekly, or a new-audience test)."""
+    c = _container(request)
+    template_id = body.template_adgroup_id or c.settings().tiktok_adgroup_id
+    result = c.ad_platform().create_adgroup(
+        campaign_id=body.campaign_id,
+        name=body.name,
+        template_adgroup_id=template_id or None,
+        overrides=body.overrides,
+    )
+    row = c.adgroup_repo().create(
+        platform=result.provider,
+        platform_adgroup_id=result.adgroup_id,
+        platform_campaign_id=result.campaign_id,
+        name=result.name,
+        template_adgroup_id=template_id or None,
+    )
+    return AdGroupOut(
+        id=row.id,
+        platform=row.platform,
+        platform_adgroup_id=row.platform_adgroup_id,
+        platform_campaign_id=row.platform_campaign_id,
+        name=row.name,
+        template_adgroup_id=row.template_adgroup_id,
+        created_at=row.created_at.isoformat(),
+    )
+
+
+@router.get("/adgroups", response_model=list[AdGroupOut], tags=["campaigns"])
+def list_adgroups(request: Request) -> list[AdGroupOut]:
+    return [
+        AdGroupOut(
+            id=r.id,
+            platform=r.platform,
+            platform_adgroup_id=r.platform_adgroup_id,
+            platform_campaign_id=r.platform_campaign_id,
+            name=r.name,
+            template_adgroup_id=r.template_adgroup_id,
+            created_at=r.created_at.isoformat(),
+        )
+        for r in _container(request).adgroup_repo().list_all()
+    ]
 
 
 @router.get("/api/jobs/overview", response_model=list[JobOverviewItem], tags=["dashboard"])

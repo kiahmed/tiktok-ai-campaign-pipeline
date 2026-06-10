@@ -63,6 +63,7 @@ class CreativeService:
         adgroup_id: str,
         profile_service=None,
         script_strategist=None,
+        voiceover=None,
     ) -> None:
         self._script_gen = script_generator
         self._video_gen = video_generator
@@ -79,6 +80,7 @@ class CreativeService:
         # (brand voice, creative directives, angle/hook, novelty) — same as the
         # agent pipeline — so /products/generate and /jobs behave consistently.
         self._strategist = script_strategist
+        self._voiceover = voiceover
 
     def run(
         self,
@@ -119,14 +121,17 @@ class CreativeService:
 
         # 1. Script — prepared one if given; else the profiles-aware Strategist
         # (falls back to the bare provider only if no strategist is wired).
-        hook_type = angle = segment = embedding = None
+        hook_type = angle = segment = embedding = visual_prompt = None
         if script_text is not None:
             cleaned = script_text.strip()
             script = ScriptResult(text=cleaned, provider="manual", model=None)
             logger.info("Using prepared script (%d words): %s", script.word_count, script.text)
         elif self._strategist is not None:
             out = self._strategist.generate(product, product_row.id)
-            script = ScriptResult(text=out.script, provider=out.provider, model=out.model)
+            visual_prompt = out.visual_prompt
+            script = ScriptResult(
+                text=out.script, provider=out.provider, model=out.model, visual_prompt=visual_prompt
+            )
             hook_type, angle, segment, embedding = (
                 out.hook_type, out.angle, out.audience_segment, out.embedding,
             )
@@ -144,15 +149,20 @@ class CreativeService:
             angle=angle,
             audience_segment=segment,
             embedding=embedding,
+            visual_prompt=visual_prompt,
         )
 
         # 2. Video.
         directives = self._profile_service.load().creative if self._profile_service else None
         video = self._video_gen.generate(product, script, directives)
 
-        # 3. Download locally.
+        # 3. Download locally, then add the voiceover + merge (if enabled).
         file_name = video_filename(slug)
         local_path = self._storage.download(video.download_url, file_name)
+        if self._voiceover is not None:
+            local_path, file_name = self._voiceover.apply(
+                slug=slug, video_path=local_path, file_name=file_name, text=script.text
+            )
         video_row = self._video_repo.create(
             product_id=product_row.id,
             script_id=script_row.id,

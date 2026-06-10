@@ -21,7 +21,7 @@ swapped by editing `.env` only** — no code changes.
 | Concern        | Default      | Drop-in alternatives          |
 |----------------|--------------|-------------------------------|
 | Script         | **Gemini**   | OpenAI, Claude                |
-| Video          | **Veo 3.1** (Gemini API) | Pexo, Creatify, Arcads, Kling     |
+| Video          | **Kling AI** (10s clips) | Veo, Pexo, Creatify, Arcads       |
 | Ad platform    | **TikTok**   | — (TikTok only)               |
 | Database       | **SQLite**   | PostgreSQL (change one URL)   |
 
@@ -262,7 +262,11 @@ curl -X POST http://localhost:8000/jobs \
 
 | Method | Path                      | Description                                            |
 |--------|---------------------------|--------------------------------------------------------|
-| POST   | `/jobs`                   | Create + run a job (`product_id` to reuse a product, or `name`+`image_url`) |
+| POST   | `/campaigns/clone`        | Deep-clone a template campaign **+ its ad groups** (no ads) |
+| GET    | `/campaigns`              | List created campaigns                                  |
+| POST   | `/adgroups`               | Create an ad group (optionally cloning a template)     |
+| GET    | `/adgroups`               | List created ad groups                                 |
+| POST   | `/jobs`                   | Create + run a job (`target_adgroup_id` to publish into a specific ad group) |
 | GET    | `/jobs`                   | List all jobs and their state                          |
 | GET    | `/jobs/{id}`              | Job detail incl. QC reviews                            |
 | POST   | `/jobs/{id}/measure`      | Run the Performance agent once for a LIVE job          |
@@ -278,6 +282,42 @@ curl -X POST http://localhost:8000/jobs \
 | GET    | `/ads/{id}/metrics`       | Metrics history for an ad                              |
 
 ---
+
+## Creative modes (`CREATIVE_MODE`)
+
+Two video styles, switchable via `.env` — the Strategist's `visual_prompt` and
+the video pipeline adapt to each:
+
+- **`product`** (default) — Kling **image2video** animates the product image
+  (prompt describes product motion), then the ElevenLabs voiceover is **merged**
+  on with ffmpeg. No lip-sync (narration over product b-roll).
+- **`talking_head`** — Kling **text2video** generates a person (prompt describes
+  a spokesperson), then Kling **lip-sync** syncs their mouth to the ElevenLabs
+  voiceover. A talking UGC ad.
+
+Both degrade gracefully to a silent clip if voice/ffmpeg is unavailable.
+
+## Cron scripts (decoupled scheduling)
+
+Scheduling is decoupled from the web server: the API exposes the operations, and
+standalone scripts call them on a configured interval. Each script loops by
+default (self-scheduling), or runs once with `--once` (for OS cron / Task
+Scheduler); `--dry-run` prints the call without sending it.
+
+```bash
+# Generate a video+ad for each product in GENERATE_PRODUCT_IDS, every GENERATE_INTERVAL_HOURS
+python -m scripts.cron_generate                 # loop (daily by default)
+python -m scripts.cron_generate --once          # one pass (use with OS cron)
+
+# Deep-clone the template campaign every CAMPAIGN_CLONE_INTERVAL_DAYS
+python -m scripts.cron_clone_campaign           # loop (monthly by default)
+python -m scripts.cron_clone_campaign --once
+```
+
+Config (`.env`): `API_BASE_URL`, `GENERATE_INTERVAL_HOURS`, `GENERATE_PRODUCT_IDS`,
+`CAMPAIGN_CLONE_INTERVAL_DAYS`, `CAMPAIGN_NAME_PREFIX`. The scripts need the API
+running. The app **never clones campaigns on its own** — only these scripts do.
+(The hourly monitoring + auto-pause job remains in-app.)
 
 ## Monitoring & automatic pause rules
 
