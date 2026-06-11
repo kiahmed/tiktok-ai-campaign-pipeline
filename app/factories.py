@@ -21,6 +21,7 @@ from app.providers.pexo import PexoVideoProvider
 from app.providers.creatify import CreatifyVideoProvider
 from app.providers.arcads import ArcadsVideoProvider
 from app.providers.kling import KlingVideoProvider
+from app.providers.heygen import HeyGenVideoProvider
 
 # --- Ad platform (TikTok only) ---
 from app.providers.tiktok import TikTokAdPlatform
@@ -85,6 +86,26 @@ def build_novelty_checker(settings: Settings):
     )
 
 
+def build_image_generator(settings: Settings):
+    """Build the image generator (for HeyGen script-generated backgrounds), or
+    None if disabled/unconfigured (so the pipeline degrades to no background)."""
+    provider = (settings.image_provider or "").lower()
+    if provider in ("", "none"):
+        return None
+    if provider in ("gemini", "imagen"):
+        from app.providers.gemini import GeminiImageProvider
+
+        if not settings.gemini_api_key:
+            return None
+        return GeminiImageProvider(
+            settings.gemini_api_key,
+            settings.imagen_model,
+            retries_429=settings.imagen_max_retries_429,
+            retry_wait=settings.imagen_retry_wait_seconds,
+        )
+    raise ConfigurationError(f"Unknown IMAGE_PROVIDER='{settings.image_provider}'")
+
+
 def build_video_generator(settings: Settings) -> VideoGenerator:
     provider = settings.video_provider.lower()
     if provider == "veo":
@@ -112,6 +133,39 @@ def build_video_generator(settings: Settings) -> VideoGenerator:
             prepare_image=settings.kling_prepare_image,
             image_width=settings.video_width,
             image_height=settings.video_height,
+        )
+    if provider == "heygen":
+        # Story mode generates its own b-roll scenes; the avatar background is
+        # then mostly hidden, so skip it to save Imagen quota (one less call).
+        bg_mode = settings.heygen_background_mode
+        if settings.story_mode_enabled and bg_mode == "script":
+            bg_mode = "none"
+        # Cast the avatar per script with the same LLM as SCRIPT_PROVIDER.
+        need_llm = settings.heygen_smart_avatar or bg_mode == "script"
+        llm = build_script_generator(settings) if need_llm else None
+        # Image generator only needed for script-generated backgrounds.
+        image_gen = build_image_generator(settings) if bg_mode == "script" else None
+        return HeyGenVideoProvider(
+            api_key=settings.heygen_api_key,
+            avatar_id=settings.heygen_avatar_id,
+            voice_id=settings.heygen_voice_id,
+            image_url=settings.heygen_image_url,
+            prefer_gender=settings.heygen_prefer_gender,
+            llm=llm,
+            smart_avatar=settings.heygen_smart_avatar,
+            max_avatar_candidates=settings.heygen_max_avatar_candidates,
+            avatar_pool=settings.heygen_avatar_pool,
+            base_url=settings.heygen_base_url,
+            engine=settings.heygen_engine,
+            width=settings.video_width,
+            height=settings.video_height,
+            resolution=settings.heygen_resolution,
+            aspect_ratio=settings.heygen_aspect_ratio,
+            speed=settings.heygen_speed,
+            remove_background=settings.heygen_remove_background,
+            image_generator=image_gen,
+            background_mode=bg_mode,
+            background=settings.heygen_background,
         )
     raise ConfigurationError(f"Unknown VIDEO_PROVIDER='{settings.video_provider}'")
 

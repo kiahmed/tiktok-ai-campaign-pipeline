@@ -17,6 +17,11 @@ class VideoGenerator(ABC):
 
     name: str = "abstract"
 
+    # True for providers that return a FINISHED video with its own voiceover and
+    # lip-sync baked in (e.g. HeyGen avatars). The pipeline then skips the
+    # separate ElevenLabs voiceover + ffmpeg merge / Kling lip-sync steps.
+    produces_audio: bool = False
+
     @abstractmethod
     def generate(
         self,

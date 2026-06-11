@@ -16,7 +16,8 @@ from app.services.strategy.angle_selector import ScriptBrief
 # Human guidance for the most common QC failure codes (the feedback loop).
 _CODE_GUIDANCE = {
     "MISSING_CTA": "ALWAYS end with a clear call to action (e.g. 'tap the link').",
-    "SCRIPT_TOO_LONG": "Keep it UNDER 50 words — count them.",
+    "SCRIPT_TOO_LONG": "Keep it within the word limit — count them.",
+    "SCRIPT_TOO_SHORT": "Write a FULLER script — don't stop early; reach the minimum word count so it fills the video.",
     "BANNED_CLAIM": "Do NOT make exaggerated or banned claims.",
     "SCRIPT_EMPTY": "Return a complete, non-empty script.",
     "DURATION_OUT_OF_RANGE": "Keep it readable in 10-20 seconds.",
@@ -51,6 +52,13 @@ def build_strategy_system(profiles: Profiles, creative_mode: str = "product") ->
     visual_guidance = _VISUAL_GUIDANCE.get(creative_mode, _VISUAL_GUIDANCE["product"])
     voice = brand.voice or "authentic, casual, first-person UGC"
     banned = ", ".join(brand.banned_words + rules.banned_claims) or "none"
+    word_rule = (
+        f"{rules.min_words}-{rules.max_words} words (write a FULL script in this "
+        f"range — do NOT go under {rules.min_words} words, it must be long enough "
+        "to fill the whole video)"
+        if rules.min_words
+        else f"<= {rules.max_words} words"
+    )
 
     creative_lines = ""
     if cr.is_set:
@@ -72,16 +80,30 @@ def build_strategy_system(profiles: Profiles, creative_mode: str = "product") ->
         creative_lines = "CREATIVE DIRECTION: " + " ".join(parts) + "\n"
 
     return (
-        "You are a senior direct-response TikTok ad copywriter.\n"
+        "You are a real TikTok creator filming a raw, authentic UGC (user-"
+        "generated-content) video — NOT a polished ad. You are not a "
+        "copywriter; you are a real person who actually used this product and "
+        "is telling a friend about it on camera.\n"
         f"BRAND: {brand.name or 'the brand'} — voice: {voice}.\n"
         f"Brand value props: {'; '.join(brand.value_props) or 'n/a'}.\n"
         f"{creative_lines}"
         f"NEVER use these words/claims: {banned}.\n"
-        f"Hard rules: <= {rules.max_words} words; reads in "
+        "WRITE LIKE A REAL PERSON TALKING, not an advertisement:\n"
+        "- Open mid-thought, as if already mid-conversation.\n"
+        "- Use everyday, casual spoken language and contractions (I'm, gonna, "
+        "honestly, not gonna lie, ngl). Short, choppy sentences; a little "
+        "imperfect is good.\n"
+        "- Ground it in a SPECIFIC real-life moment or detail (a mirror, the "
+        "shower, a comment someone made) — concrete, not generic claims.\n"
+        "- NO ad-speak, NO hype words, NO slogans, NO 'introducing', NO "
+        "exclamation-heavy sales pitch. Sound like a genuine recommendation.\n"
+        "- End with a soft, natural CTA (e.g. 'link's in my bio if you wanna "
+        "try it'), never a hard 'BUY NOW'.\n"
+        f"Hard rules: {word_rule}; reads in "
         f"{rules.min_seconds:.0f}-{rules.max_seconds:.0f}s; must contain a HOOK, "
         "PROBLEM, SOLUTION and CTA, in that order.\n"
-        "The \"script\" is the SPOKEN voiceover (a voice actor reads it aloud) — "
-        "natural, punchy ad copy. " + visual_guidance + " Keep visual_prompt "
+        "The \"script\" is the SPOKEN voiceover (read aloud by a real-sounding "
+        "person) — natural, conversational, believable. " + visual_guidance + " Keep visual_prompt "
         "concrete, vertical-friendly, under 200 characters and NOT the spoken words.\n"
         "Output ONLY a single minified JSON object with EXACTLY these keys: "
         '"hook_type", "angle", "audience_segment", "script", "visual_prompt". '
@@ -90,13 +112,27 @@ def build_strategy_system(profiles: Profiles, creative_mode: str = "product") ->
 
 
 def build_strategy_user(
-    product: ProductInput, brief: ScriptBrief, *, stronger: bool = False
+    product: ProductInput,
+    brief: ScriptBrief,
+    *,
+    profiles: Profiles | None = None,
+    stronger: bool = False,
 ) -> str:
     seg = brief.audience_segment
     seg_name = seg.name if seg else "general"
     pains = ", ".join(seg.pains) if seg else ""
     desires = ", ".join(seg.desires) if seg else ""
-    benefits = "; ".join(product.benefits) or "n/a"
+
+    # Selling points = the product `benefits` parameter MERGED with the brand
+    # value_props from profiles.json (deduplicated, request params first). This
+    # is what makes the script draw on BOTH sources at once.
+    brand_props = list(profiles.brand.value_props) if profiles else []
+    selling_points: list[str] = []
+    for sp in list(product.benefits) + brand_props:
+        sp = sp.strip()
+        if sp and sp.lower() not in {s.lower() for s in selling_points}:
+            selling_points.append(sp)
+    benefits = "; ".join(selling_points) or "n/a"
 
     lines = [
         f"PRODUCT: {product.name}",

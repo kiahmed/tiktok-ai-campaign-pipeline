@@ -30,6 +30,7 @@ class AudienceProfile:
 class CreativeRules:
     """Hard creative constraints enforced by QC and described to the Strategist."""
 
+    min_words: int = 0   # 0 = no minimum; set to fill at least min_seconds of speech
     max_words: int = 50
     min_seconds: float = 10.0
     max_seconds: float = 20.0

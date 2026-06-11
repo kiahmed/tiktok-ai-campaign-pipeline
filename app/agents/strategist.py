@@ -42,7 +42,7 @@ class CreativeStrategistAgent(Agent):
 
         embedding = None
         visual_prompt = None
-        if job.prepared_script:
+        if job.prepared_script and job.prepared_script.strip():
             script = ScriptResult(text=job.prepared_script.strip(), provider="manual")
             hook_type = angle = segment = None
             logger.info("Using prepared script (%d words)", script.word_count)

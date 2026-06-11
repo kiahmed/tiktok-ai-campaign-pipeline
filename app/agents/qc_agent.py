@@ -63,6 +63,12 @@ class QualityReviewAgent(Agent):
         if script.word_count > rules.max_words:
             codes.append("SCRIPT_TOO_LONG")
             reasons.append(f"Script is {script.word_count} words (max {rules.max_words}).")
+        elif rules.min_words and text and script.word_count < rules.min_words:
+            codes.append("SCRIPT_TOO_SHORT")
+            reasons.append(
+                f"Script is only {script.word_count} words (min {rules.min_words}); "
+                "too short to fill the video."
+            )
 
         lowered = text.lower()
         if rules.cta_keywords and not any(k in lowered for k in rules.cta_keywords):

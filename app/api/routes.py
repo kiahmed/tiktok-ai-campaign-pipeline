@@ -25,14 +25,20 @@ from app.api.schemas import (
     OverviewItem,
     OverviewResponse,
     OverviewSummary,
+    ApiCallLogItem,
+    PreviewRequest,
+    PreviewResponse,
+    PreviewRunDetail,
+    PreviewRunItem,
     ProductRequest,
     QcReviewOut,
     ScriptGenRequest,
     ScriptGenResponse,
     StrategyInsight,
+    VideoApiCallOut,
     VideoInfo,
 )
-from app.core.entities import ProductInput
+from app.core.entities import ProductInput, ScriptResult
 from app.services.naming import slugify
 
 logger = logging.getLogger("api")
@@ -156,6 +162,135 @@ def overview(request: Request) -> OverviewResponse:
         avg_roas=round(sum(roas_values) / len(roas_values), 2) if roas_values else 0.0,
     )
     return OverviewResponse(summary=summary, providers=_providers(request), ads=items)
+
+
+@router.post("/api/preview", response_model=PreviewResponse, tags=["dashboard"])
+def preview_video(request: Request, body: PreviewRequest) -> PreviewResponse:
+    """Dry run: generate the script and assemble the EXACT video API payload
+    (avatar/voice selection, background scene prompt, full request) WITHOUT
+    generating any media or submitting — so you can review everything and test
+    quality before spending credits."""
+    c = _container(request)
+    # Resolve the product (existing id, or ad-hoc from the body).
+    if body.product_id:
+        product = c.product_repo().get(body.product_id)
+        if product is None:
+            raise HTTPException(status_code=404, detail=f"product {body.product_id} not found")
+        product_input = ProductInput(
+            name=product.name,
+            image_url=product.image_url,
+            description=product.description,
+            benefits=[b for b in (product.benefits or "").split("\n") if b.strip()],
+        )
+        product_id = product.id
+    else:
+        if not body.name:
+            raise HTTPException(status_code=422, detail="provide product_id or name")
+        product_input = ProductInput(
+            name=body.name, image_url=str(body.image_url or ""),
+            description=body.description, benefits=body.benefits,
+        )
+        product_id = 0
+
+    # Script: use the prepared one, else generate via the Strategist.
+    if body.prepared_script and body.prepared_script.strip():
+        text = body.prepared_script.strip()
+        script = ScriptResult(text=text, provider="manual", model=None)
+        script_meta = {
+            "text": text, "visual_prompt": None, "word_count": script.word_count,
+            "provider": "manual", "model": None, "hook_type": None, "angle": None,
+            "audience_segment": None,
+        }
+    else:
+        out = c.script_strategist().generate(product_input, product_id)
+        script = ScriptResult(
+            text=out.script, provider=out.provider, model=out.model, visual_prompt=out.visual_prompt
+        )
+        script_meta = {
+            "text": out.script, "visual_prompt": out.visual_prompt,
+            "word_count": len(out.script.split()), "provider": out.provider, "model": out.model,
+            "hook_type": out.hook_type, "angle": out.angle, "audience_segment": out.audience_segment,
+        }
+
+    directives = c.profile_service().load().creative
+    gen = c.video_generator()
+    if not hasattr(gen, "preview"):
+        raise HTTPException(status_code=400, detail=f"provider '{getattr(gen,'name','?')}' has no preview")
+    result = gen.preview(product_input, script, directives)
+
+    scene_prompt = None
+    for call in result.get("calls", []):
+        if str(call.get("method", "")).startswith("IMAGE"):
+            scene_prompt = (call.get("request") or {}).get("prompt")
+
+    payload = result.get("payload", {})
+    calls = result.get("calls", [])
+    provider = getattr(gen, "name", "")
+    # Persist the dry run so it shows up in the preview history.
+    run = c.preview_repo().create(
+        product_id=product_id or None,
+        product_name=product_input.name,
+        provider=provider,
+        script=script_meta,
+        scene_prompt=scene_prompt,
+        payload=payload,
+        calls=calls,
+    )
+    return PreviewResponse(
+        id=run.id,
+        provider=provider,
+        script=script_meta,
+        scene_prompt=scene_prompt,
+        payload=payload,
+        calls=calls,
+    )
+
+
+@router.get("/api/previews", response_model=list[PreviewRunItem], tags=["dashboard"])
+def list_previews(request: Request) -> list[PreviewRunItem]:
+    """Recent dry-run previews (history)."""
+    c = _container(request)
+    return [
+        PreviewRunItem(
+            id=r.id,
+            product_id=r.product_id,
+            product_name=r.product_name,
+            provider=r.provider,
+            created_at=r.created_at.isoformat(),
+        )
+        for r in c.preview_repo().list_recent()
+    ]
+
+
+@router.get("/api/previews/{preview_id}", response_model=PreviewRunDetail, tags=["dashboard"])
+def get_preview(request: Request, preview_id: int) -> PreviewRunDetail:
+    """Full stored detail of one preview run (script, payload, calls)."""
+    import json
+
+    c = _container(request)
+    r = c.preview_repo().get(preview_id)
+    if r is None:
+        raise HTTPException(status_code=404, detail=f"preview {preview_id} not found")
+
+    def _loads(s: str | None):
+        if not s:
+            return None
+        try:
+            return json.loads(s)
+        except (TypeError, ValueError):
+            return {"raw": s}
+
+    return PreviewRunDetail(
+        id=r.id,
+        product_id=r.product_id,
+        product_name=r.product_name,
+        provider=r.provider,
+        created_at=r.created_at.isoformat(),
+        script=_loads(r.script_json),
+        scene_prompt=r.scene_prompt,
+        payload=_loads(r.payload_json),
+        calls=_loads(r.calls_json) or [],
+    )
 
 
 @router.post("/scripts/generate", response_model=ScriptGenResponse, tags=["creatives"])
@@ -520,6 +655,11 @@ def jobs_overview(request: Request) -> list[JobOverviewItem]:
                 hook_type=script.hook_type if script else None,
                 audience_segment=script.audience_segment if script else None,
                 script_text=script.text if script else None,
+                visual_prompt=script.visual_prompt if script else None,
+                word_count=script.word_count if script else None,
+                script_provider=script.provider if script else None,
+                script_model=script.model if script else None,
+                video_id=video.id if video else None,
                 video_url=f"/videos/{video.file_name}" if video else None,
                 ad_id=ad_external,
                 last_qc_verdict=last.verdict.value if last else None,
@@ -530,6 +670,77 @@ def jobs_overview(request: Request) -> list[JobOverviewItem]:
             )
         )
     return items
+
+
+@router.get(
+    "/api/videos/{video_id}/calls",
+    response_model=list[VideoApiCallOut],
+    tags=["dashboard"],
+)
+def video_api_calls(request: Request, video_id: int) -> list[VideoApiCallOut]:
+    """Full audit trail of provider API calls (payload + parameters) that
+    produced this video — selection, list, submit and status, in order."""
+    import json
+
+    c = _container(request)
+    rows = c.video_api_call_repo().list_for_video(video_id)
+
+    def _loads(s: str | None):
+        if not s:
+            return None
+        try:
+            return json.loads(s)
+        except (TypeError, ValueError):
+            return {"raw": s}
+
+    return [
+        VideoApiCallOut(
+            seq=r.seq,
+            provider=r.provider,
+            method=r.method,
+            endpoint=r.endpoint,
+            request_payload=_loads(r.request_payload),
+            response_body=_loads(r.response_body),
+            status_code=r.status_code,
+            created_at=r.created_at.isoformat(),
+        )
+        for r in rows
+    ]
+
+
+@router.get("/api/calls", response_model=list[ApiCallLogItem], tags=["dashboard"])
+def api_call_log(request: Request, limit: int = 200) -> list[ApiCallLogItem]:
+    """Global API-call log across ALL videos (jobs AND /products/generate),
+    newest first — script snapshot, avatar/voice selection, list calls, the
+    generated background image (prompt + URL), submit payload and status."""
+    import json
+
+    c = _container(request)
+    rows = c.video_api_call_repo().list_recent(min(max(limit, 1), 1000))
+
+    def _loads(s: str | None):
+        if not s:
+            return None
+        try:
+            return json.loads(s)
+        except (TypeError, ValueError):
+            return {"raw": s}
+
+    return [
+        ApiCallLogItem(
+            id=r.id,
+            video_id=r.video_id,
+            seq=r.seq,
+            provider=r.provider,
+            method=r.method,
+            endpoint=r.endpoint,
+            request_payload=_loads(r.request_payload),
+            response_body=_loads(r.response_body),
+            status_code=r.status_code,
+            created_at=r.created_at.isoformat(),
+        )
+        for r in rows
+    ]
 
 
 @router.get("/api/strategy/insights", response_model=list[StrategyInsight], tags=["dashboard"])

@@ -34,6 +34,10 @@ class VoiceGenerationError(ProviderError):
     """The voice (TTS) provider failed to produce audio."""
 
 
+class ImageGenerationError(ProviderError):
+    """The image provider failed to produce an image."""
+
+
 class AdPlatformError(ProviderError):
     """The advertising platform rejected or failed a request."""
 

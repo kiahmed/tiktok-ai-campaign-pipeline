@@ -80,6 +80,71 @@ class Settings(BaseSettings):
     # Pad/fit the product image to 9:16 (video_width x video_height) before
     # sending to image2video (whose output ratio follows the input image).
     kling_prepare_image: bool = True
+    # HeyGen v3 (/v3/videos). Renders a finished, voiced video — no ElevenLabs/
+    # merge needed. By DEFAULT HeyGen auto-picks an avatar + voice from its own
+    # libraries (no IDs to look up). Pin them with heygen_avatar_id/voice_id, or
+    # set heygen_image_url to animate a photo (image-to-video) instead.
+    heygen_api_key: str = ""
+    heygen_base_url: str = "https://api.heygen.com"
+    heygen_avatar_id: str = ""           # blank => auto-select from /v2/avatars
+    heygen_voice_id: str = ""            # blank => avatar default, else /v2/voices
+    heygen_image_url: str = ""           # set => image-to-video (animate this photo)
+    # Gender to cast is taken from profiles.json creative.narrator automatically;
+    # this is only a fallback override. Empty narrator + empty here => the LLM
+    # infers gender from the script.
+    heygen_prefer_gender: str = ""
+    # Avatar casting: True => LLM picks the best-fitting spokesperson per script
+    # (tends to repeat the same person). False => pick RANDOMLY among the top-N
+    # candidates so the presenter varies between videos. Voice always follows the
+    # chosen avatar's default voice.
+    heygen_smart_avatar: bool = False
+    heygen_max_avatar_candidates: int = 50  # cap avatars shown to the LLM
+    heygen_avatar_pool: int = 8             # randomize among this many top avatars
+    # Avatar render engine. Blank => omit (HeyGen defaults to Avatar IV, which
+    # standard avatars support). Set "avatar_v" ONLY for Avatar-V-eligible avatars.
+    heygen_engine: str = ""
+    heygen_resolution: str = "1080p"     # 4k | 1080p | 720p
+    heygen_aspect_ratio: str = "9:16"    # auto | 16:9 | 9:16 | 4:5 | 5:4 | 1:1
+    heygen_speed: float = 1.0            # voice speed (0.5–1.5)
+    heygen_remove_background: bool = False
+    # Avatar background:
+    #   none   = HeyGen default backdrop
+    #   script = generate a scene image from the script (needs an image provider)
+    #   image  = use heygen_background as a fixed image URL
+    #   color  = use heygen_background as a solid hex colour
+    heygen_background_mode: str = "none"
+    heygen_background: str = ""           # color hex or image URL (modes color/image)
+
+    # ---- Image generation (used for HeyGen script-generated backgrounds) ----
+    image_provider: str = "gemini"       # gemini (Imagen) | none
+    imagen_model: str = "imagen-4.0-generate-001"
+    # On HTTP 429 (quota/rate limit) wait and retry this many times. Imagen quota
+    # is low by default — raise it on Google Cloud, or reduce image calls.
+    imagen_max_retries_429: int = 1
+    imagen_retry_wait_seconds: float = 20.0
+
+    # ---- Product cutaway (post-step: briefly show the product full-screen) ----
+    # Inserts a one-off full-screen product shot into the talking video while the
+    # narration continues (the presenter leaves the screen for a few seconds).
+    product_cutaway_enabled: bool = False
+    product_cutaway_seconds: float = 2.5            # how long the product is shown
+    product_cutaway_at: float = 0.4                 # fixed placement (fraction) if no mention
+    product_cutaway_style: str = "zoom"             # zoom (gentle Ken-Burns) | still
+    product_cutaway_sync_to_mention: bool = True    # place it when the script names the product
+
+    # ---- Story mode (multi-scene b-roll: Gemini beats+scenes, ffmpeg edit) ----
+    # Splits the script into beats, generates a cinematic scene per beat (Imagen)
+    # and cuts between them under the HeyGen narration — a story, not a talking
+    # head. Adds ~1 LLM + several Imagen calls per video.
+    story_mode_enabled: bool = False
+    story_beats: int = 4                 # number of narrative beats/scenes
+    story_hook_on_avatar: bool = True    # keep the first beat on the presenter
+
+    # ---- Captions (post-step: burn subtitles from the script with ffmpeg) ----
+    captions_enabled: bool = False
+    caption_words_per_cue: int = 4      # words shown per on-screen caption line
+    caption_font_size: int = 44         # subtitle font size in REAL pixels (1080x1920)
+    caption_margin_v: int = 180         # distance from the bottom (px)
 
     # ---- Voiceover (TTS) + merge ----
     voice_enabled: bool = True
@@ -108,6 +173,10 @@ class Settings(BaseSettings):
     # Path to brand/audience/creative-rules profiles (JSON). QC thresholds and
     # brand voice are read from here (config/profiles.json).
     profiles_path: str = "config/profiles.json"
+    # Pool of product image URLs (JSON). One is picked at random per video for the
+    # product shot (the cutaway), so the product visual varies. Empty/missing =>
+    # use the product's own image_url.
+    product_images_path: str = "config/product_images.json"
     # How many script->video->QC attempts before a job is DISCARDED.
     job_max_attempts: int = 3
 

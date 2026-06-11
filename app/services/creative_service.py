@@ -14,6 +14,7 @@ or TikTok specifically — only the interfaces injected into it.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 
 from app.core.entities import ProductInput, ScriptResult
@@ -64,6 +65,10 @@ class CreativeService:
         profile_service=None,
         script_strategist=None,
         voiceover=None,
+        api_call_repo=None,
+        storyboard=None,
+        product_cutaway=None,
+        captions=None,
     ) -> None:
         self._script_gen = script_generator
         self._video_gen = video_generator
@@ -73,6 +78,10 @@ class CreativeService:
         self._script_repo = script_repo
         self._video_repo = video_repo
         self._ad_repo = ad_repo
+        self._api_calls = api_call_repo
+        self._storyboard = storyboard
+        self._cutaway = product_cutaway
+        self._captions = captions
         self._campaign_id = campaign_id
         self._adgroup_id = adgroup_id
         self._profile_service = profile_service
@@ -122,7 +131,9 @@ class CreativeService:
         # 1. Script — prepared one if given; else the profiles-aware Strategist
         # (falls back to the bare provider only if no strategist is wired).
         hook_type = angle = segment = embedding = visual_prompt = None
-        if script_text is not None:
+        # An empty/whitespace script is treated as "no prepared script" so the
+        # Strategist generates one (an empty string must never reach the video API).
+        if script_text is not None and script_text.strip():
             cleaned = script_text.strip()
             script = ScriptResult(text=cleaned, provider="manual", model=None)
             logger.info("Using prepared script (%d words): %s", script.word_count, script.text)
@@ -157,12 +168,42 @@ class CreativeService:
         video = self._video_gen.generate(product, script, directives)
 
         # 3. Download locally, then add the voiceover + merge (if enabled).
+        # Providers that bake in their own audio (HeyGen) skip this — merging an
+        # ElevenLabs track on top would double the voice.
         file_name = video_filename(slug)
         local_path = self._storage.download(video.download_url, file_name)
-        if self._voiceover is not None:
+        if self._voiceover is not None and not getattr(self._video_gen, "produces_audio", False):
             local_path, file_name = self._voiceover.apply(
                 slug=slug, video_path=local_path, file_name=file_name, text=script.text
             )
+        # Optional post-step: compose a multi-scene STORY (b-roll under VO).
+        if self._storyboard is not None:
+            st = self._storyboard.apply(
+                local_path, script_text=script.text, duration_seconds=video.duration_seconds,
+            )
+            if st.path != local_path:
+                local_path, file_name = st.path, os.path.basename(st.path)
+            if st.logs:
+                video.api_calls.extend(st.logs)
+        # Optional post-step: briefly cut to a full-screen product shot.
+        if self._cutaway is not None:
+            cut = self._cutaway.apply(
+                local_path, product=product, script_text=script.text,
+                duration_seconds=video.duration_seconds,
+            )
+            if cut.path != local_path:
+                local_path, file_name = cut.path, os.path.basename(cut.path)
+            if cut.log:  # record the cutaway in the video's API-call log
+                video.api_calls.append(cut.log)
+        # Optional post-step: burn captions (subtitles) from the script.
+        if self._captions is not None:
+            cc = self._captions.apply(
+                local_path, script_text=script.text, duration_seconds=video.duration_seconds,
+            )
+            if cc.path != local_path:
+                local_path, file_name = cc.path, os.path.basename(cc.path)
+            if cc.log:
+                video.api_calls.append(cc.log)
         video_row = self._video_repo.create(
             product_id=product_row.id,
             script_id=script_row.id,
@@ -175,6 +216,13 @@ class CreativeService:
             format=video.format,
             duration_seconds=video.duration_seconds,
         )
+
+        # Persist the provider API-call audit trail (payload + params) for this video.
+        if self._api_calls is not None and video.api_calls:
+            try:
+                self._api_calls.record_many(video_row.id, video.api_calls)
+            except Exception:  # auditing must never fail the pipeline
+                logger.warning("Failed to store API-call history for video %s", video_row.id, exc_info=True)
 
         # When not deploying, the pipeline ends here: script + video + download.
         if not deploy:

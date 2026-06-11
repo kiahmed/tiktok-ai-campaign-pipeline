@@ -78,6 +78,52 @@ class AdGroupOut(BaseModel):
     created_at: str
 
 
+class PreviewRequest(BaseModel):
+    """Dry-run preview input: generate the script + assemble the exact video API
+    payload WITHOUT generating media or submitting. Provide a product_id, or
+    name (+ optional image_url/description/benefits)."""
+
+    product_id: int | None = None
+    name: str | None = None
+    image_url: str | None = None
+    description: str = ""
+    benefits: list[str] = Field(default_factory=list)
+    prepared_script: str | None = Field(
+        default=None, description="Use this script verbatim instead of generating one."
+    )
+
+
+class PreviewResponse(BaseModel):
+    id: int | None = None        # stored preview-run id (for history)
+    provider: str | None = None
+    script: dict                 # the script object (text, visual_prompt, hook/angle/...)
+    scene_prompt: str | None = None   # background scene prompt (if background_mode=script)
+    payload: dict                # the exact request that WOULD be sent to the video API
+    calls: list[dict]            # full dry-run audit trail (script, selection, etc.)
+
+
+class PreviewRunItem(BaseModel):
+    """One row in the preview history list."""
+
+    id: int
+    product_id: int | None = None
+    product_name: str
+    provider: str
+    created_at: str
+
+
+class PreviewRunDetail(BaseModel):
+    id: int
+    product_id: int | None = None
+    product_name: str
+    provider: str
+    created_at: str
+    script: dict | None = None
+    scene_prompt: str | None = None
+    payload: dict | None = None
+    calls: list[dict] = Field(default_factory=list)
+
+
 class ScriptGenRequest(BaseModel):
     """Script-only preview input. Provide product details, or a product_id to
     reuse an existing product's accumulated history (angles/rejections)."""
@@ -258,12 +304,43 @@ class JobOverviewItem(BaseModel):
     hook_type: str | None = None
     audience_segment: str | None = None
     script_text: str | None = None
+    visual_prompt: str | None = None
+    word_count: int | None = None
+    script_provider: str | None = None
+    script_model: str | None = None
+    video_id: int | None = None
     video_url: str | None = None
     ad_id: str | None = None
     last_qc_verdict: str | None = None
     last_qc_codes: list[str] = Field(default_factory=list)
     last_qc_reasons: list[str] = Field(default_factory=list)
     discard_reason: str | None = None
+    created_at: str
+
+
+class VideoApiCallOut(BaseModel):
+    seq: int
+    provider: str
+    method: str
+    endpoint: str
+    request_payload: dict | list | None = None
+    response_body: dict | list | None = None
+    status_code: int | None = None
+    created_at: str
+
+
+class ApiCallLogItem(BaseModel):
+    """One entry in the global API-call log (across all videos)."""
+
+    id: int
+    video_id: int
+    seq: int
+    provider: str
+    method: str
+    endpoint: str
+    request_payload: dict | list | None = None
+    response_body: dict | list | None = None
+    status_code: int | None = None
     created_at: str
 
 

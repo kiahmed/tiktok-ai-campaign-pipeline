@@ -7,8 +7,9 @@ across a known set instead of free-text labels that never line up.
 from __future__ import annotations
 
 # How the first 1-2 seconds grab attention.
+# NOTE: "question" is intentionally excluded — question hooks underperform for
+# this brand, so the selector is never allowed to pick one.
 HOOK_TYPES: list[str] = [
-    "question",          # "Ever notice your part line getting wider?"
     "shock_stat",        # "I lost 40% of my hair in 3 months."
     "before_after",      # "Day 1 vs Day 90."
     "pov",               # "POV: you finally found something that works."

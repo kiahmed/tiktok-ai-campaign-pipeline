@@ -1,15 +1,19 @@
 """② Video Production Agent — turns the script candidate into a video candidate.
 
-Two creative modes (CREATIVE_MODE):
-  * product      — Kling image2video animates the product image; the ElevenLabs
-                   voiceover is merged on with ffmpeg (no lip-sync).
-  * talking_head — Kling text2video makes a person, then Kling lip-sync syncs
-                   their mouth to the ElevenLabs voiceover.
-Both fall back gracefully (silent video) if voice/merge is unavailable.
+Paths:
+  * provider produces_audio (e.g. HeyGen) — the provider returns a finished,
+    voiced, lip-synced avatar video from the script alone. CREATIVE_MODE is
+    ignored and no ElevenLabs/merge/lip-sync runs.
+  * CREATIVE_MODE=product      — Kling image2video animates the product image;
+    the ElevenLabs voiceover is merged on with ffmpeg (no lip-sync).
+  * CREATIVE_MODE=talking_head — Kling text2video makes a person, then Kling
+    lip-sync syncs their mouth to the ElevenLabs voiceover.
+The Kling paths fall back gracefully (silent video) if voice/merge is missing.
 """
 from __future__ import annotations
 
 import logging
+import os
 
 from app.agents.base import Agent, AgentResult, product_to_input
 from app.core.entities import ScriptResult
@@ -39,6 +43,10 @@ class VideoProductionAgent(Agent):
         profile_service: ProfileService,
         voiceover: VoiceoverService,
         talking_head: TalkingHeadProducer,
+        api_call_repo=None,
+        storyboard=None,
+        product_cutaway=None,
+        captions=None,
         creative_mode: str = "product",
     ) -> None:
         self._gen = video_generator
@@ -46,6 +54,10 @@ class VideoProductionAgent(Agent):
         self._product_repo = product_repo
         self._script_repo = script_repo
         self._video_repo = video_repo
+        self._api_calls = api_call_repo
+        self._storyboard = storyboard
+        self._cutaway = product_cutaway
+        self._captions = captions
         self._profiles = profile_service
         self._voiceover = voiceover
         self._talking_head = talking_head
@@ -68,7 +80,48 @@ class VideoProductionAgent(Agent):
         product_input = product_to_input(product)
         slug = slugify(product.name)
 
-        if self._creative_mode == "talking_head":
+        video = None
+        if getattr(self._gen, "produces_audio", False):
+            # Provider (e.g. HeyGen) returns a FINISHED, voiced, lip-synced video
+            # from the script alone — no ElevenLabs voiceover / merge / lip-sync.
+            video = self._gen.generate(product_input, script, directives)
+            file_name = video_filename(slug)
+            local_path = self._storage.download(video.download_url, file_name)
+            # Optional post-step: compose a multi-scene STORY (b-roll under VO).
+            if self._storyboard is not None:
+                st = self._storyboard.apply(
+                    local_path, script_text=script.text, duration_seconds=video.duration_seconds,
+                )
+                if st.path != local_path:
+                    local_path, file_name = st.path, os.path.basename(st.path)
+                if video is not None and st.logs:
+                    video.api_calls.extend(st.logs)
+            # Optional post-step: briefly cut to a full-screen product shot.
+            if self._cutaway is not None:
+                cut = self._cutaway.apply(
+                    local_path, product=product_input, script_text=script.text,
+                    duration_seconds=video.duration_seconds,
+                )
+                if cut.path != local_path:
+                    local_path, file_name = cut.path, os.path.basename(cut.path)
+                if cut.log:  # record the cutaway in the video's API-call log
+                    video.api_calls.append(cut.log)
+            # Optional post-step: burn captions (subtitles) from the script.
+            if self._captions is not None:
+                cc = self._captions.apply(
+                    local_path, script_text=script.text, duration_seconds=video.duration_seconds,
+                )
+                if cc.path != local_path:
+                    local_path, file_name = cc.path, os.path.basename(cc.path)
+                if cc.log:
+                    video.api_calls.append(cc.log)
+            row = self._video_repo.create(
+                product_id=job.product_id, script_id=script_row.id, provider=video.provider,
+                external_job_id=video.external_job_id, remote_url=video.download_url,
+                local_path=local_path, file_name=file_name, aspect_ratio=video.aspect_ratio,
+                format=video.format, duration_seconds=video.duration_seconds,
+            )
+        elif self._creative_mode == "talking_head":
             local_path, file_name, aspect, duration = self._talking_head.produce(
                 product=product_input, script=script, directives=directives, slug=slug
             )
@@ -91,6 +144,13 @@ class VideoProductionAgent(Agent):
                 local_path=local_path, file_name=file_name, aspect_ratio=video.aspect_ratio,
                 format=video.format, duration_seconds=video.duration_seconds,
             )
+
+        # Persist the provider API-call audit trail (payload + params) for this video.
+        if self._api_calls is not None and video is not None and video.api_calls:
+            try:
+                self._api_calls.record_many(row.id, video.api_calls)
+            except Exception:  # auditing must never fail the pipeline
+                logger.warning("Failed to store API-call history for video %s", row.id, exc_info=True)
 
         logger.info("Video candidate ready (%s mode): %s", self._creative_mode, row.local_path)
         return AgentResult(ok=True, next_status=JobStatus.VIDEO_READY, updates={"video_id": row.id})

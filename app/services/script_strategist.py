@@ -74,7 +74,7 @@ class ScriptStrategist:
 
         best: StrategyOutput | None = None
         for attempt in range(self._max_attempts):
-            user = build_strategy_user(product, brief, stronger=attempt > 0)
+            user = build_strategy_user(product, brief, profiles=profiles, stronger=attempt > 0)
             raw = self._llm.complete(system, user)
             parsed = extract_json(raw)
 

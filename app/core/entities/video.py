@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(slots=True)
@@ -29,3 +29,7 @@ class VideoResult:
     format: str = "mp4"
     aspect_ratio: str = "9:16"
     duration_seconds: float | None = None
+    # Full audit trail of the provider API calls made to produce this video
+    # (selection, list, submit, status). Each item is a JSON-able dict. Persisted
+    # per video so the exact payload + parameters can be reviewed later.
+    api_calls: list[dict] = field(default_factory=list)

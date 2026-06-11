@@ -18,6 +18,7 @@ from app.factories import (
     active_adgroup_id,
     active_campaign_id,
     build_ad_platform,
+    build_image_generator,
     build_novelty_checker,
     build_qc_llm,
     build_script_generator,
@@ -32,8 +33,10 @@ from app.repositories import (
     CreativeJobRepository,
     MetricRepository,
     ProductRepository,
+    PreviewRunRepository,
     QcReviewRepository,
     ScriptRepository,
+    VideoApiCallRepository,
     VideoRepository,
 )
 from app.agents import (
@@ -54,6 +57,10 @@ from app.services.profile_service import ProfileService
 from app.services.qc_judge import QcJudge
 from app.services.script_strategist import ScriptStrategist
 from app.services.strategy import AngleSelector
+from app.services.captions import CaptionService
+from app.services.product_cutaway import ProductCutawayService
+from app.services.product_images import ProductImagePool
+from app.services.storyboard import StoryboardService
 from app.services.talking_head import TalkingHeadProducer
 from app.services.video_merge import VideoMerger
 from app.services.video_storage import VideoStorageService
@@ -72,10 +79,12 @@ class Container(containers.DeclarativeContainer):
     product_repo = providers.Singleton(ProductRepository, session_factory)
     script_repo = providers.Singleton(ScriptRepository, session_factory)
     video_repo = providers.Singleton(VideoRepository, session_factory)
+    video_api_call_repo = providers.Singleton(VideoApiCallRepository, session_factory)
     ad_repo = providers.Singleton(AdRepository, session_factory)
     metric_repo = providers.Singleton(MetricRepository, session_factory)
     job_repo = providers.Singleton(CreativeJobRepository, session_factory)
     qc_repo = providers.Singleton(QcReviewRepository, session_factory)
+    preview_repo = providers.Singleton(PreviewRunRepository, session_factory)
     campaign_repo = providers.Singleton(CampaignRepository, session_factory)
     adgroup_repo = providers.Singleton(AdGroupRepository, session_factory)
 
@@ -85,6 +94,46 @@ class Container(containers.DeclarativeContainer):
     voice_generator = providers.Singleton(build_voice_generator, settings)
     ad_platform = providers.Singleton(build_ad_platform, settings)
     video_merger = providers.Singleton(VideoMerger, ffmpeg=settings.provided.ffmpeg_path)
+    product_image_pool = providers.Singleton(
+        ProductImagePool, path=settings.provided.product_images_path
+    )
+    product_cutaway = providers.Singleton(
+        ProductCutawayService,
+        ffmpeg=settings.provided.ffmpeg_path,
+        enabled=settings.provided.product_cutaway_enabled,
+        seconds=settings.provided.product_cutaway_seconds,
+        at_fraction=settings.provided.product_cutaway_at,
+        style=settings.provided.product_cutaway_style,
+        sync_to_mention=settings.provided.product_cutaway_sync_to_mention,
+        image_pool=product_image_pool,
+        width=settings.provided.video_width,
+        height=settings.provided.video_height,
+        fps=settings.provided.video_fps,
+    )
+    caption_service = providers.Singleton(
+        CaptionService,
+        ffmpeg=settings.provided.ffmpeg_path,
+        enabled=settings.provided.captions_enabled,
+        words_per_cue=settings.provided.caption_words_per_cue,
+        font_size=settings.provided.caption_font_size,
+        margin_v=settings.provided.caption_margin_v,
+        width=settings.provided.video_width,
+        height=settings.provided.video_height,
+    )
+    image_generator = providers.Singleton(build_image_generator, settings)
+    storyboard_service = providers.Singleton(
+        StoryboardService,
+        ffmpeg=settings.provided.ffmpeg_path,
+        image_generator=image_generator,
+        llm=script_generator,
+        storage_dir=settings.provided.video_storage_dir,
+        enabled=settings.provided.story_mode_enabled,
+        beats=settings.provided.story_beats,
+        hook_on_avatar=settings.provided.story_hook_on_avatar,
+        width=settings.provided.video_width,
+        height=settings.provided.video_height,
+        fps=settings.provided.video_fps,
+    )
     voiceover_service = providers.Singleton(
         VoiceoverService,
         voice_generator=voice_generator,
@@ -152,11 +201,15 @@ class Container(containers.DeclarativeContainer):
         script_repo=script_repo,
         video_repo=video_repo,
         ad_repo=ad_repo,
+        api_call_repo=video_api_call_repo,
         campaign_id=providers.Callable(active_campaign_id, settings),
         adgroup_id=providers.Callable(active_adgroup_id, settings),
         profile_service=profile_service,
         script_strategist=script_strategist,
         voiceover=voiceover_service,
+        storyboard=storyboard_service,
+        product_cutaway=product_cutaway,
+        captions=caption_service,
     )
 
     strategist_agent = providers.Singleton(
@@ -178,9 +231,13 @@ class Container(containers.DeclarativeContainer):
         product_repo=product_repo,
         script_repo=script_repo,
         video_repo=video_repo,
+        api_call_repo=video_api_call_repo,
         profile_service=profile_service,
         voiceover=voiceover_service,
         talking_head=talking_head_producer,
+        storyboard=storyboard_service,
+        product_cutaway=product_cutaway,
+        captions=caption_service,
         creative_mode=settings.provided.creative_mode,
     )
     qc_llm = providers.Singleton(build_qc_llm, settings)

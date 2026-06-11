@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(.venv/Scripts/python.exe -m pip freeze)"
+      "Bash(.venv/Scripts/python.exe -m pip freeze)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(.venv/Scripts/python.exe -m pytest -q)",
+      "Bash(.venv/Scripts/python.exe -m py_compile app/providers/heygen/video_provider.py app/config.py app/factories.py)",
+      "Bash(.venv/Scripts/python.exe -c ' *)",
+      "Bash(.venv/Scripts/python.exe -m py_compile app/core/entities/video.py app/providers/base_video.py app/providers/heygen/video_provider.py app/database/models.py app/repositories/video_api_call_repository.py app/repositories/__init__.py app/containers.py app/agents/video_agent.py app/services/creative_service.py app/api/schemas.py app/api/routes.py)"
     ]
   }
 }

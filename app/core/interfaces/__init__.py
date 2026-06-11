@@ -7,6 +7,13 @@ The DI container binds a concrete implementation to each interface based on the
 from app.core.interfaces.script_generator import ScriptGenerator
 from app.core.interfaces.video_generator import VideoGenerator
 from app.core.interfaces.voice_generator import VoiceGenerator
+from app.core.interfaces.image_generator import ImageGenerator
 from app.core.interfaces.ad_platform import AdPlatform
 
-__all__ = ["ScriptGenerator", "VideoGenerator", "VoiceGenerator", "AdPlatform"]
+__all__ = [
+    "ScriptGenerator",
+    "VideoGenerator",
+    "VoiceGenerator",
+    "ImageGenerator",
+    "AdPlatform",
+]

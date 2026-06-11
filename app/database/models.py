@@ -125,6 +125,35 @@ class Video(Base):
     ads: Mapped[list["Ad"]] = relationship(
         back_populates="video", cascade="all, delete-orphan"
     )
+    api_calls: Mapped[list["VideoApiCall"]] = relationship(
+        back_populates="video", cascade="all, delete-orphan", order_by="VideoApiCall.seq"
+    )
+
+
+class VideoApiCall(Base):
+    """Audit trail of every provider API call made to generate a video.
+
+    One row per call (selection, list, submit, status). Stores the exact request
+    payload + resolved parameters and a compact response so the full history of a
+    video's generation can be reviewed later.
+    """
+
+    __tablename__ = "video_api_calls"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    video_id: Mapped[int] = mapped_column(
+        ForeignKey("videos.id", ondelete="CASCADE"), index=True
+    )
+    seq: Mapped[int] = mapped_column(Integer, default=0)  # order within the generation
+    provider: Mapped[str] = mapped_column(String(50))
+    method: Mapped[str] = mapped_column(String(10))       # POST | GET | SELECT
+    endpoint: Mapped[str] = mapped_column(String(255))
+    request_payload: Mapped[str | None] = mapped_column(Text, nullable=True)   # JSON
+    response_body: Mapped[str | None] = mapped_column(Text, nullable=True)     # JSON
+    status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+    video: Mapped["Video"] = relationship(back_populates="api_calls")
 
 
 class Ad(Base):
@@ -187,6 +216,27 @@ class Metric(Base):
     )
 
     ad: Mapped["Ad"] = relationship(back_populates="metrics")
+
+
+class PreviewRun(Base):
+    """A stored dry-run preview (no media generated, nothing submitted).
+
+    Captures the generated script, the assembled video API payload, the
+    background scene prompt and the full dry-run audit trail so previews can be
+    reviewed/compared on the dashboard before committing to generation.
+    """
+
+    __tablename__ = "preview_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    product_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    product_name: Mapped[str] = mapped_column(String(255), default="")
+    provider: Mapped[str] = mapped_column(String(50), default="")
+    script_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    scene_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    calls_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
 
 
 class CreativeJob(Base):
