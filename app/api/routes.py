@@ -344,7 +344,7 @@ def generate_creative(request: Request, body: ProductRequest) -> CreativeRespons
     service = _container(request).creative_service()
     product = ProductInput(
         name=body.name,
-        image_url=str(body.image_url),
+        image_url=str(body.image_url or ""),
         description=body.description,
         benefits=body.benefits,
     )
@@ -468,15 +468,15 @@ def create_job(request: Request, body: JobRequest) -> JobResponse:
         if product is None:
             raise HTTPException(status_code=404, detail=f"product {body.product_id} not found")
     else:
-        if not body.name or not body.image_url:
+        if not body.name:
             raise HTTPException(
                 status_code=422,
-                detail="provide product_id, or both name and image_url for a new product",
+                detail="provide a product_id, or a name for a new product",
             )
         product = c.product_repo().create(
             name=body.name,
             slug=slugify(body.name),
-            image_url=str(body.image_url),
+            image_url=str(body.image_url or ""),
             description=body.description,
             benefits=body.benefits,
         )

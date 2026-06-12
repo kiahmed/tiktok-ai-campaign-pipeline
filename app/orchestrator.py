@@ -9,8 +9,10 @@ agent's job:
   * APPROVED  -> post via the Ad agent, unless the job opted out of posting.
   * any agent raising -> job marked FAILED with the error recorded.
 
-State machine:
-  DRAFT -> SCRIPTED -> VIDEO_READY -> (APPROVED|REJECTED)
+State machine (script QC runs BEFORE the video so a bad script never spends a
+video-generation API call):
+  DRAFT -> SCRIPTED -> [script QC] -> SCRIPT_APPROVED -> VIDEO_READY
+        -> [video QC] -> (APPROVED|REJECTED)
   APPROVED -> LIVE        REJECTED -> DRAFT (retry) | DISCARDED
 """
 from __future__ import annotations
@@ -38,14 +40,16 @@ class CreativeJobOrchestrator:
         *,
         job_repo: CreativeJobRepository,
         strategist: CreativeStrategistAgent,
+        script_qc: QualityReviewAgent,
         video_agent: VideoProductionAgent,
-        qc_agent: QualityReviewAgent,
+        video_qc: QualityReviewAgent,
         ad_agent: TikTokAdAgent,
     ) -> None:
         self._jobs = job_repo
         self._strategist = strategist
+        self._script_qc = script_qc
         self._video = video_agent
-        self._qc = qc_agent
+        self._video_qc = video_qc
         self._ad = ad_agent
 
     def process(self, job_id: int, *, max_steps: int = 20) -> "object":
@@ -77,9 +81,11 @@ class CreativeJobOrchestrator:
         if status == JobStatus.DRAFT:
             return self._strategist
         if status == JobStatus.SCRIPTED:
+            return self._script_qc        # validate the script BEFORE the video
+        if status == JobStatus.SCRIPT_APPROVED:
             return self._video
         if status == JobStatus.VIDEO_READY:
-            return self._qc
+            return self._video_qc
         if status == JobStatus.APPROVED:
             return self._ad
         return None

@@ -9,6 +9,7 @@ from app.repositories.base import BaseRepository
 NON_TERMINAL = (
     JobStatus.DRAFT,
     JobStatus.SCRIPTED,
+    JobStatus.SCRIPT_APPROVED,
     JobStatus.VIDEO_READY,
     JobStatus.APPROVED,
 )

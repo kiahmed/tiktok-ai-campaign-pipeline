@@ -106,6 +106,26 @@ def build_image_generator(settings: Settings):
     raise ConfigurationError(f"Unknown IMAGE_PROVIDER='{settings.image_provider}'")
 
 
+def build_music_provider(settings: Settings):
+    """Build the background-music provider, or None if disabled/unconfigured."""
+    if not settings.music_enabled:
+        return None
+    provider = (settings.music_provider or "").lower()
+    if provider == "jamendo":
+        if not settings.jamendo_client_id:
+            return None
+        from app.providers.jamendo import JamendoMusicProvider
+
+        return JamendoMusicProvider(
+            settings.jamendo_client_id,
+            base_url=settings.jamendo_base_url,
+            query=settings.music_query,
+            limit=settings.music_limit,
+            commercial_only=settings.music_commercial_only,
+        )
+    raise ConfigurationError(f"Unknown MUSIC_PROVIDER='{settings.music_provider}'")
+
+
 def build_video_generator(settings: Settings) -> VideoGenerator:
     provider = settings.video_provider.lower()
     if provider == "veo":

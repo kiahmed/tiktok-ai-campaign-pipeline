@@ -38,6 +38,16 @@ class ImageGenerationError(ProviderError):
     """The image provider failed to produce an image."""
 
 
+class QcRejectedError(AppError):
+    """A script failed pre-video quality review — no video was generated."""
+
+    def __init__(self, reasons=None, codes=None) -> None:
+        self.reasons = list(reasons or [])
+        self.codes = list(codes or [])
+        detail = "; ".join(self.reasons) if self.reasons else "rejected by quality review"
+        super().__init__(f"Script rejected by QC: {detail}")
+
+
 class AdPlatformError(ProviderError):
     """The advertising platform rejected or failed a request."""
 

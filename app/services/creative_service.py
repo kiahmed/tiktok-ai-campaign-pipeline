@@ -69,6 +69,10 @@ class CreativeService:
         storyboard=None,
         product_cutaway=None,
         captions=None,
+        music=None,
+        hook_card=None,
+        script_qc=None,
+        max_script_attempts: int = 3,
     ) -> None:
         self._script_gen = script_generator
         self._video_gen = video_generator
@@ -82,6 +86,10 @@ class CreativeService:
         self._storyboard = storyboard
         self._cutaway = product_cutaway
         self._captions = captions
+        self._music = music
+        self._hook_card = hook_card
+        self._script_qc = script_qc
+        self._max_script_attempts = max(1, max_script_attempts)
         self._campaign_id = campaign_id
         self._adgroup_id = adgroup_id
         self._profile_service = profile_service
@@ -129,27 +137,42 @@ class CreativeService:
         )
 
         # 1. Script — prepared one if given; else the profiles-aware Strategist
-        # (falls back to the bare provider only if no strategist is wired).
+        # (falls back to the bare provider only if no strategist is wired). The
+        # script is QC'd HERE, before any video is generated, so a bad script
+        # never spends a video-generation API call. A strategist script that
+        # fails QC is regenerated up to max_script_attempts; a prepared one is
+        # rejected immediately.
+        prepared = script_text is not None and bool(script_text.strip())
+        can_retry = (not prepared) and (self._strategist is not None)
+        attempts = self._max_script_attempts if can_retry else 1
         hook_type = angle = segment = embedding = visual_prompt = None
-        # An empty/whitespace script is treated as "no prepared script" so the
-        # Strategist generates one (an empty string must never reach the video API).
-        if script_text is not None and script_text.strip():
-            cleaned = script_text.strip()
-            script = ScriptResult(text=cleaned, provider="manual", model=None)
-            logger.info("Using prepared script (%d words): %s", script.word_count, script.text)
-        elif self._strategist is not None:
-            out = self._strategist.generate(product, product_row.id)
-            visual_prompt = out.visual_prompt
-            script = ScriptResult(
-                text=out.script, provider=out.provider, model=out.model, visual_prompt=visual_prompt
-            )
-            hook_type, angle, segment, embedding = (
-                out.hook_type, out.angle, out.audience_segment, out.embedding,
-            )
-            logger.info("Strategist script (angle=%s hook=%s): %s", angle, hook_type, script.text)
-        else:
-            script = self._script_gen.generate(product)
-            logger.info("Generated script (%d words): %s", script.word_count, script.text)
+        for attempt in range(1, attempts + 1):
+            hook_type = angle = segment = embedding = visual_prompt = None
+            if prepared:
+                script = ScriptResult(text=script_text.strip(), provider="manual", model=None)
+            elif self._strategist is not None:
+                out = self._strategist.generate(product, product_row.id)
+                visual_prompt = out.visual_prompt
+                script = ScriptResult(
+                    text=out.script, provider=out.provider, model=out.model, visual_prompt=visual_prompt
+                )
+                hook_type, angle, segment, embedding = (
+                    out.hook_type, out.angle, out.audience_segment, out.embedding,
+                )
+            else:
+                script = self._script_gen.generate(product)
+
+            if self._script_qc is not None:
+                qc = self._script_qc.review(script.text, script.word_count)
+                if not qc.ok:
+                    logger.info("Pre-video script QC rejected (attempt %d/%d): %s",
+                                attempt, attempts, qc.codes)
+                    if attempt < attempts:
+                        continue
+                    from app.core.exceptions import QcRejectedError
+                    raise QcRejectedError(reasons=qc.reasons, codes=qc.codes)
+            break
+        logger.info("Script accepted (%d words): %s", script.word_count, script.text)
         script_row = self._script_repo.create(
             product_id=product_row.id,
             text=script.text,
@@ -204,6 +227,20 @@ class CreativeService:
                 local_path, file_name = cc.path, os.path.basename(cc.path)
             if cc.log:
                 video.api_calls.append(cc.log)
+        # Optional post-step: mix background music under the narration.
+        if self._music is not None:
+            mu = self._music.apply(local_path, duration_seconds=video.duration_seconds)
+            if mu.path != local_path:
+                local_path, file_name = mu.path, os.path.basename(mu.path)
+            if mu.log:
+                video.api_calls.append(mu.log)
+        # Optional post-step (last): prepend a bold hook card before the avatar.
+        if self._hook_card is not None:
+            hk = self._hook_card.apply(local_path, script_text=script.text)
+            if hk.path != local_path:
+                local_path, file_name = hk.path, os.path.basename(hk.path)
+            if hk.log:
+                video.api_calls.append(hk.log)
         video_row = self._video_repo.create(
             product_id=product_row.id,
             script_id=script_row.id,

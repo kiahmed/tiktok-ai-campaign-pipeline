@@ -37,8 +37,9 @@ class JobStatus(str, Enum):
     """Lifecycle of a creative job moving through the agent pipeline."""
 
     DRAFT = "DRAFT"              # created, awaiting Creative Strategist
-    SCRIPTED = "SCRIPTED"        # script candidate ready, awaiting Video Production
-    VIDEO_READY = "VIDEO_READY"  # video candidate ready, awaiting Quality Review
+    SCRIPTED = "SCRIPTED"        # script candidate ready, awaiting script QC
+    SCRIPT_APPROVED = "SCRIPT_APPROVED"  # script passed QC, awaiting Video Production
+    VIDEO_READY = "VIDEO_READY"  # video candidate ready, awaiting video QC
     APPROVED = "APPROVED"        # QC passed, awaiting TikTok Ad agent
     REJECTED = "REJECTED"        # QC failed (reason saved); will retry or discard
     LIVE = "LIVE"                # ad created on platform; Performance agent monitors

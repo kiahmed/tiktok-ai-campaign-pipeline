@@ -50,7 +50,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   tr.adrow:hover { background:#1c2330; }
   .badge { padding:2px 9px; border-radius:999px; font-size:12px; font-weight:600; }
   .ACTIVE,.LIVE,.APPROVE { background:rgba(46,204,113,.15); color:var(--green); }
-  .PAUSED,.APPROVED,.SCRIPTED,.VIDEO_READY,.DRAFT { background:rgba(241,196,15,.15); color:var(--amber); }
+  .PAUSED,.APPROVED,.SCRIPTED,.SCRIPT_APPROVED,.VIDEO_READY,.DRAFT { background:rgba(241,196,15,.15); color:var(--amber); }
   .FAILED,.REJECTED,.DISCARDED,.REJECT { background:rgba(231,76,60,.15); color:var(--red); }
   .muted { color:var(--muted); }
   .linklike { color:var(--blue); cursor:pointer; text-decoration:underline; }
@@ -237,12 +237,14 @@ function renderJobs(jobs){
   const rows = jobs.map(j=>{
     const qc = j.last_qc_verdict ? `<span class="badge ${j.last_qc_verdict}">${j.last_qc_verdict}</span>` : '<span class="muted">—</span>';
     const codes = (j.last_qc_codes||[]).map(c=>`<span class="chip bad">${esc(c)}</span>`).join('');
+    const reasons = (j.last_qc_reasons||[]).map(r=>`<div class="reason">${esc(r)}</div>`).join('');
     const viewLink = j.video_url ? `<a class="linklike" href="${j.video_url}" target="_blank">view</a>` : '';
     const callsLink = j.video_id ? `<a class="linklike" onclick="showCalls(${j.video_id})">calls</a>` : '';
     const vid = (viewLink || callsLink)
       ? [viewLink, callsLink].filter(Boolean).join(' · ')
       : '<span class="muted">—</span>';
-    const note = j.discard_reason ? `<span class="reason">${esc(j.discard_reason)}</span>` : codes || '<span class="muted">—</span>';
+    const discard = j.discard_reason ? `<div class="reason">discarded: ${esc(j.discard_reason)}</div>` : '';
+    const note = [discard, codes, reasons].filter(Boolean).join('') || '<span class="muted">—</span>';
     const script = j.script_text
       ? `<div style="text-align:left;max-width:340px;white-space:normal;font-size:12px;line-height:1.4">${esc(j.script_text)}
          <div style="margin-top:6px"><a class="linklike" onclick="showScript(${j.id})">{ } script json</a></div></div>`
@@ -253,7 +255,7 @@ function renderJobs(jobs){
       <td>${esc(j.hook_type)||'<span class="muted">—</span>'}</td>
       <td>${script}</td>
       <td>${qc}</td><td>${j.attempt}/${j.max_attempts}</td><td>${vid}</td>
-      <td style="text-align:left">${note}</td></tr>`;
+      <td style="text-align:left;max-width:320px;white-space:normal">${note}</td></tr>`;
   }).join('');
   document.getElementById('jobsWrap').innerHTML = `<table>${head}${rows}</table>`;
 }

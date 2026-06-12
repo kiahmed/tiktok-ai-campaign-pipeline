@@ -19,6 +19,7 @@ from app.factories import (
     active_campaign_id,
     build_ad_platform,
     build_image_generator,
+    build_music_provider,
     build_novelty_checker,
     build_qc_llm,
     build_script_generator,
@@ -55,9 +56,12 @@ from app.services.monitoring_service import MonitoringService
 from app.services.pause_rules import PauseRuleEngine
 from app.services.profile_service import ProfileService
 from app.services.qc_judge import QcJudge
+from app.services.script_qc import ScriptQc
 from app.services.script_strategist import ScriptStrategist
 from app.services.strategy import AngleSelector
 from app.services.captions import CaptionService
+from app.services.hook_card import HookCardService
+from app.services.music import MusicService
 from app.services.product_cutaway import ProductCutawayService
 from app.services.product_images import ProductImagePool
 from app.services.storyboard import StoryboardService
@@ -120,6 +124,28 @@ class Container(containers.DeclarativeContainer):
         width=settings.provided.video_width,
         height=settings.provided.video_height,
     )
+    music_provider = providers.Singleton(build_music_provider, settings)
+    music_service = providers.Singleton(
+        MusicService,
+        ffmpeg=settings.provided.ffmpeg_path,
+        provider=music_provider,
+        storage_dir=settings.provided.video_storage_dir,
+        enabled=settings.provided.music_enabled,
+        volume=settings.provided.music_volume,
+    )
+    hook_card_service = providers.Singleton(
+        HookCardService,
+        ffmpeg=settings.provided.ffmpeg_path,
+        storage_dir=settings.provided.video_storage_dir,
+        enabled=settings.provided.hook_card_enabled,
+        seconds=settings.provided.hook_card_seconds,
+        font_size=settings.provided.hook_card_font_size,
+        max_words=settings.provided.hook_card_max_words,
+        uppercase=settings.provided.hook_card_uppercase,
+        width=settings.provided.video_width,
+        height=settings.provided.video_height,
+        fps=settings.provided.video_fps,
+    )
     image_generator = providers.Singleton(build_image_generator, settings)
     storyboard_service = providers.Singleton(
         StoryboardService,
@@ -157,6 +183,19 @@ class Container(containers.DeclarativeContainer):
     # Brand / audience / creative-directive profiles (used by services + agents).
     profile_service = providers.Singleton(
         ProfileService, path=settings.provided.profiles_path
+    )
+
+    # Quality-review judge + the reusable pre-video script QC (rules + judge),
+    # defined here so the one-shot CreativeService can use them before any video.
+    qc_llm = providers.Singleton(build_qc_llm, settings)
+    qc_judge = providers.Singleton(
+        QcJudge,
+        llm=qc_llm,
+        profile_service=profile_service,
+        enabled=settings.provided.qc_llm_enabled,
+    )
+    script_qc = providers.Singleton(
+        ScriptQc, profile_service=profile_service, judge=qc_judge
     )
 
     monitoring_service = providers.Singleton(
@@ -210,6 +249,10 @@ class Container(containers.DeclarativeContainer):
         storyboard=storyboard_service,
         product_cutaway=product_cutaway,
         captions=caption_service,
+        music=music_service,
+        hook_card=hook_card_service,
+        script_qc=script_qc,
+        max_script_attempts=settings.provided.job_max_attempts,
     )
 
     strategist_agent = providers.Singleton(
@@ -238,17 +281,14 @@ class Container(containers.DeclarativeContainer):
         storyboard=storyboard_service,
         product_cutaway=product_cutaway,
         captions=caption_service,
+        music=music_service,
+        hook_card=hook_card_service,
         creative_mode=settings.provided.creative_mode,
     )
-    qc_llm = providers.Singleton(build_qc_llm, settings)
-    qc_judge = providers.Singleton(
-        QcJudge,
-        llm=qc_llm,
-        profile_service=profile_service,
-        enabled=settings.provided.qc_llm_enabled,
-    )
     video_spec = providers.Singleton(build_video_spec, settings)
-    qc_agent = providers.Singleton(
+    # Script QC runs BEFORE the video (rules + LLM judge on the script) so a bad
+    # script never spends a video-generation API call. Video QC runs after.
+    script_qc_agent = providers.Singleton(
         QualityReviewAgent,
         profile_service=profile_service,
         script_repo=script_repo,
@@ -256,6 +296,17 @@ class Container(containers.DeclarativeContainer):
         qc_repo=qc_repo,
         judge=qc_judge,
         video_spec=video_spec,
+        phase="script",
+    )
+    video_qc_agent = providers.Singleton(
+        QualityReviewAgent,
+        profile_service=profile_service,
+        script_repo=script_repo,
+        video_repo=video_repo,
+        qc_repo=qc_repo,
+        judge=qc_judge,
+        video_spec=video_spec,
+        phase="video",
     )
     # Campaign cloning + ad-group routing.
     campaign_service = providers.Singleton(
@@ -295,7 +346,8 @@ class Container(containers.DeclarativeContainer):
         CreativeJobOrchestrator,
         job_repo=job_repo,
         strategist=strategist_agent,
+        script_qc=script_qc_agent,
         video_agent=video_agent,
-        qc_agent=qc_agent,
+        video_qc=video_qc_agent,
         ad_agent=ad_agent,
     )

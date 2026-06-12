@@ -32,7 +32,7 @@
   },
   "rules": {
     "min_words": 25,
-    "max_words": 35,
+    "max_words": 42,
     "min_seconds": 10.0,
     "max_seconds": 20.0,
     "required_beats": ["hook", "problem", "solution", "cta"],

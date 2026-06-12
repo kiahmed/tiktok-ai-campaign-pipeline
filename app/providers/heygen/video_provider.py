@@ -282,14 +282,32 @@ class HeyGenVideoProvider(PollingVideoProvider):
         voices = self._catalog_voices()
         if not voices:
             return None
-        # Match the avatar's own gender if known, else the requested gender.
+        # HeyGen's /v2/avatars usually omits a per-avatar default voice, so pick a
+        # RANDOM voice among the top-N gender/English matches (variety per video),
+        # instead of always the deterministic first one.
         gender = str(avatar.get("gender", "")).lower() if avatar else gender
-        chosen = self._choose_voice(voices, gender)
+        pool = self._voice_candidates(voices, gender)
+        chosen = self._rng.choice(pool) if pool else self._choose_voice(voices, gender)
         self._log.info(
-            "HeyGen voice %s (%s) selected to match the avatar",
-            chosen.get("voice_id"), chosen.get("name"),
+            "HeyGen voice %s (%s) picked randomly from a pool of %d",
+            chosen.get("voice_id"), chosen.get("name"), len(pool),
         )
         return chosen.get("voice_id")
+
+    def _voice_candidates(self, voices: list[dict], gender: str) -> list[dict]:
+        pool = voices
+        if gender:
+            matched = [v for v in voices if str(v.get("gender", "")).lower() == gender]
+            pool = matched or voices
+        # English first, then stable id order; cap to the random pool size.
+        pool = sorted(
+            pool,
+            key=lambda v: (
+                0 if str(v.get("language", "")).lower().startswith(("en", "english")) else 1,
+                str(v.get("voice_id", "")),
+            ),
+        )
+        return pool[: self._pool]
 
     # ---- pure ranking helpers (unit-tested) ----
     @staticmethod

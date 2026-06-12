@@ -140,6 +140,26 @@ class Settings(BaseSettings):
     story_beats: int = 4                 # number of narrative beats/scenes
     story_hook_on_avatar: bool = True    # keep the first beat on the presenter
 
+    # ---- Hook card (bold text pattern-interrupt prepended before the avatar) ----
+    hook_card_enabled: bool = False
+    hook_card_seconds: float = 1.5      # how long the opening card shows
+    hook_card_font_size: int = 96       # real px on the 1080x1920 frame
+    hook_card_max_words: int = 10       # trim the hook line to this many words
+    hook_card_uppercase: bool = True    # UPPERCASE the hook for impact
+
+    # ---- Background music (Jamendo search -> random track -> ffmpeg mix) ----
+    music_enabled: bool = False
+    music_provider: str = "jamendo"
+    jamendo_client_id: str = ""          # free from https://devportal.jamendo.com/
+    jamendo_base_url: str = "https://api.jamendo.com/v3.0"
+    music_query: str = "advertisement background"
+    music_limit: int = 100               # candidates fetched, then random-picked
+    music_volume: float = 0.18           # background level under the narration
+    # Only pick tracks that allow commercial use + derivatives (by / by-sa / cc0).
+    # The query "advertisement background" is mostly NonCommercial on Jamendo, so
+    # leave this on and use a commercial-friendly query, or turn it off knowingly.
+    music_commercial_only: bool = True
+
     # ---- Captions (post-step: burn subtitles from the script with ffmpeg) ----
     captions_enabled: bool = False
     caption_words_per_cue: int = 4      # words shown per on-screen caption line

@@ -47,6 +47,8 @@ class VideoProductionAgent(Agent):
         storyboard=None,
         product_cutaway=None,
         captions=None,
+        music=None,
+        hook_card=None,
         creative_mode: str = "product",
     ) -> None:
         self._gen = video_generator
@@ -58,6 +60,8 @@ class VideoProductionAgent(Agent):
         self._storyboard = storyboard
         self._cutaway = product_cutaway
         self._captions = captions
+        self._music = music
+        self._hook_card = hook_card
         self._profiles = profile_service
         self._voiceover = voiceover
         self._talking_head = talking_head
@@ -115,6 +119,20 @@ class VideoProductionAgent(Agent):
                     local_path, file_name = cc.path, os.path.basename(cc.path)
                 if cc.log:
                     video.api_calls.append(cc.log)
+            # Optional post-step: mix background music under the narration.
+            if self._music is not None:
+                mu = self._music.apply(local_path, duration_seconds=video.duration_seconds)
+                if mu.path != local_path:
+                    local_path, file_name = mu.path, os.path.basename(mu.path)
+                if mu.log:
+                    video.api_calls.append(mu.log)
+            # Optional post-step (last): prepend a bold hook card before the avatar.
+            if self._hook_card is not None:
+                hk = self._hook_card.apply(local_path, script_text=script.text)
+                if hk.path != local_path:
+                    local_path, file_name = hk.path, os.path.basename(hk.path)
+                if hk.log:
+                    video.api_calls.append(hk.log)
             row = self._video_repo.create(
                 product_id=job.product_id, script_id=script_row.id, provider=video.provider,
                 external_job_id=video.external_job_id, remote_url=video.download_url,

@@ -20,6 +20,7 @@ from app.core.exceptions import (
     ConfigurationError,
     NotFoundError,
     ProviderError,
+    QcRejectedError,
 )
 from app.database.session import init_db
 from app.logging_config import configure_logging
@@ -34,6 +35,8 @@ def _status_for(exc: AppError) -> int:
         return 400  # bad/missing configuration in the request's reach
     if isinstance(exc, NotFoundError):
         return 404
+    if isinstance(exc, QcRejectedError):
+        return 422  # the script failed quality review (no video generated)
     if isinstance(exc, ProviderError):
         return 502  # upstream provider (Gemini/Pexo/TikTok) failed
     return 500
@@ -52,10 +55,11 @@ def _register_exception_handlers(app: FastAPI) -> None:
             status,
             exc,
         )
-        return JSONResponse(
-            status_code=status,
-            content={"error": type(exc).__name__, "detail": str(exc)},
-        )
+        content = {"error": type(exc).__name__, "detail": str(exc)}
+        codes = getattr(exc, "codes", None)
+        if codes:
+            content["codes"] = codes
+        return JSONResponse(status_code=status, content=content)
 
     @app.exception_handler(Exception)
     async def _handle_unexpected(request: Request, exc: Exception) -> JSONResponse:

@@ -147,3 +147,26 @@ def test_random_pool_varies_the_presenter():
 
     assert make(_IdxRng(0)) == "a_male_free"   # first of the sorted male pool
     assert make(_IdxRng(1)) == "a_male_prem"   # second -> a DIFFERENT man
+
+
+# Avatars WITHOUT a default voice (like HeyGen's /v2/avatars) => voice is random.
+AVATARS_NO_VOICE = [
+    {"avatar_id": "m1", "gender": "male", "premium": False},
+    {"avatar_id": "m2", "gender": "male", "premium": False},
+]
+
+
+def test_voice_is_random_when_avatar_has_no_default():
+    def make(rng):
+        g = H(api_key="k", prefer_gender="male", smart_avatar=False, rng=rng)
+        g._list = lambda p: {"avatars": AVATARS_NO_VOICE} if p == "/v2/avatars" else {"voices": VOICES}
+        return g._resolve(_script())[1]   # voice_id
+
+    # English male voices sorted: [v_en_m]; with only one english-male it's stable,
+    # but the candidate pool prefers english then id, so different rng can vary it.
+    v0 = make(_IdxRng(0))
+    v1 = make(_IdxRng(1))
+    assert v0 in {"v_en_m", "v_es_m"}      # a male voice was chosen
+    assert v1 in {"v_en_m", "v_es_m"}
+    # different indices select different voices from the male pool
+    assert v0 != v1

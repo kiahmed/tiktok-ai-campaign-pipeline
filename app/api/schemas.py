@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field, HttpUrl
 
 class ProductRequest(BaseModel):
     name: str = Field(..., examples=["Rosemary Hair Growth Oil"])
-    image_url: HttpUrl = Field(..., examples=["https://example.com/product.jpg"])
+    # Optional: the product shot is picked at random from config/product_images.json.
+    image_url: HttpUrl | None = Field(default=None, examples=["https://example.com/product.jpg"])
     description: str = Field(default="", examples=["A natural rosemary oil for hair."])
     benefits: list[str] = Field(
         default_factory=list,

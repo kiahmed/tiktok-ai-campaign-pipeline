@@ -22,9 +22,6 @@ from app.services.qc_judge import QcJudge
 
 logger = logging.getLogger("agent.qc")
 
-# Hard rule failures that make an LLM judgement pointless (nothing to judge).
-_BLOCKING = {"SCRIPT_EMPTY", "VIDEO_MISSING"}
-
 
 class QualityReviewAgent(Agent):
     name = "quality_review"
@@ -38,6 +35,7 @@ class QualityReviewAgent(Agent):
         qc_repo: QcReviewRepository,
         judge: QcJudge,
         video_spec,
+        phase: str = "full",   # "script" (pre-video) | "video" (post-video) | "full"
     ) -> None:
         self._profiles = profile_service
         self._script_repo = script_repo
@@ -45,18 +43,87 @@ class QualityReviewAgent(Agent):
         self._qc_repo = qc_repo
         self._judge = judge
         self._spec = video_spec
+        self._phase = phase
 
     def run(self, job: CreativeJob) -> AgentResult:
         script = self._script_repo.get(job.script_id) if job.script_id else None
-        video = self._video_repo.get(job.video_id) if job.video_id else None
-        if script is None or video is None:
-            raise NotFoundError("missing script or video for QC")
+        if script is None:
+            raise NotFoundError("missing script for QC")
 
         rules = self._profiles.load().rules
         codes: list[str] = []
         reasons: list[str] = []
-
         text = (script.text or "").strip()
+
+        do_script = self._phase in ("script", "full")
+        do_video = self._phase in ("video", "full")
+
+        if do_script:
+            self._check_script(text, script, rules, codes, reasons)
+
+        video = None
+        if do_video:
+            video = self._video_repo.get(job.video_id) if job.video_id else None
+            if video is None:
+                raise NotFoundError("missing video for QC")
+            self._check_video(video, rules, codes, reasons)
+
+        rule_score = max(0.0, 1.0 - 0.25 * len(codes))
+        reviewer = "rules"
+        score = rule_score
+
+        # Qualitative LLM judge — script-content check, so it runs in the SCRIPT
+        # phase (before any video is generated). Skipped if the script is empty.
+        if do_script and "SCRIPT_EMPTY" not in codes:
+            judgement = self._judge.evaluate(
+                text,
+                duration_seconds=video.duration_seconds if video else None,
+                aspect_ratio=video.aspect_ratio if video else "9:16",
+            )
+            if judgement is not None:
+                reviewer = "rules+llm"
+                score = min(rule_score, judgement.score)
+                for c in judgement.codes:
+                    if c not in codes:
+                        codes.append(c)
+                reasons.extend(judgement.reasons)
+                logger.info("QC judge: approve=%s codes=%s", judgement.approve, judgement.codes)
+
+        verdict = QcVerdict.REJECT if codes else QcVerdict.APPROVE
+        if not codes:
+            reasons.append(f"Passed all {self._phase} checks.")
+
+        self._qc_repo.add(
+            job_id=job.id,
+            product_id=job.product_id,
+            script_id=script.id,
+            video_id=video.id if video else None,
+            verdict=verdict,
+            score=score,
+            reasons=reasons,
+            failure_codes=codes,
+            reviewer=reviewer,
+            attempt=job.attempt,
+        )
+        logger.info(
+            "QC[%s] verdict=%s reviewer=%s score=%.2f codes=%s",
+            self._phase, verdict.value, reviewer, score, codes,
+        )
+
+        if verdict is QcVerdict.REJECT:
+            next_status = JobStatus.REJECTED
+        elif self._phase == "script":
+            next_status = JobStatus.SCRIPT_APPROVED
+        else:
+            next_status = JobStatus.APPROVED
+        return AgentResult(
+            ok=True,
+            next_status=next_status,
+            data={"verdict": verdict.value, "codes": codes, "reasons": reasons},
+        )
+
+    # ---- checks ----
+    def _check_script(self, text, script, rules, codes, reasons) -> None:
         if not text:
             codes.append("SCRIPT_EMPTY")
             reasons.append("Script text is empty.")
@@ -81,6 +148,7 @@ class QualityReviewAgent(Agent):
                 reasons.append(f"Script contains a banned claim: '{claim}'.")
                 break
 
+    def _check_video(self, video, rules, codes, reasons) -> None:
         video_present = bool(
             video.local_path and os.path.exists(video.local_path) and os.path.getsize(video.local_path) > 0
         )
@@ -98,50 +166,6 @@ class QualityReviewAgent(Agent):
                 f"Video is {video.duration_seconds:.0f}s "
                 f"(allowed {rules.min_seconds:.0f}-{rules.max_seconds:.0f}s)."
             )
-
-        rule_score = max(0.0, 1.0 - 0.25 * len(codes))
-        reviewer = "rules"
-        score = rule_score
-
-        # Qualitative LLM judge — only when there is something coherent to judge.
-        if not (set(codes) & _BLOCKING):
-            judgement = self._judge.evaluate(
-                text,
-                duration_seconds=video.duration_seconds,
-                aspect_ratio=video.aspect_ratio,
-            )
-            if judgement is not None:
-                reviewer = "rules+llm"
-                score = min(rule_score, judgement.score)
-                for c in judgement.codes:
-                    if c not in codes:
-                        codes.append(c)
-                reasons.extend(judgement.reasons)
-                logger.info("QC judge: approve=%s codes=%s", judgement.approve, judgement.codes)
-
-        verdict = QcVerdict.REJECT if codes else QcVerdict.APPROVE
-        if not codes:
-            reasons.append("Passed all rule and judge checks.")
-
-        self._qc_repo.add(
-            job_id=job.id,
-            product_id=job.product_id,
-            script_id=script.id,
-            video_id=video.id,
-            verdict=verdict,
-            score=score,
-            reasons=reasons,
-            failure_codes=codes,
-            reviewer=reviewer,
-            attempt=job.attempt,
-        )
-        logger.info("QC verdict=%s reviewer=%s score=%.2f codes=%s", verdict.value, reviewer, score, codes)
-
-        return AgentResult(
-            ok=True,
-            next_status=JobStatus.APPROVED if verdict is QcVerdict.APPROVE else JobStatus.REJECTED,
-            data={"verdict": verdict.value, "codes": codes, "reasons": reasons},
-        )
 
     def _check_video_specs(self, path: str, codes: list[str], reasons: list[str]) -> None:
         """Enforce platform delivery specs on the downloaded file."""
